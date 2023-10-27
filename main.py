@@ -1,3 +1,5 @@
+import get_score from CustomDetec
+
 
 def edit_distance(sent1, sent2):
     sent1_split = sent1.lower().split(' ')
