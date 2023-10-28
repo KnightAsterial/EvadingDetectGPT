@@ -1,19 +1,8 @@
-import matplotlib.pyplot as plt
 import numpy as np
-import datasets
-import transformers
 import re
 import torch
-import torch.nn.functional as F
 import tqdm
-import random
-from sklearn.metrics import roc_curve, precision_recall_curve, auc
-import argparse
-import datetime
-import os
-import json
 import functools
-import custom_datasets
 from multiprocessing.pool import ThreadPool
 import time
 import globals
@@ -22,36 +11,33 @@ def load_base_model():
     print('MOVING BASE MODEL TO GPU...', end='', flush=True)
     start = time.time()
     try:
-        mask_model.cpu()
+        globals.MASK_MODEL.cpu()
     except NameError:
         pass
-    if args.openai_model is None:
-        base_model.to(DEVICE)
+    globals.BASE_MODEL.to(globals.device)
     print(f'DONE ({time.time() - start:.2f}s)')
 
 def load_mask_model():
     print('MOVING MASK MODEL TO GPU...', end='', flush=True)
     start = time.time()
 
-    if args.openai_model is None:
-        base_model.cpu()
-    if not args.random_fills:
-        mask_model.to(DEVICE)
+    globals.BASE_MODEL.cpu()
+    globals.MASK_MODEL.to(globals.device)
     print(f'DONE ({time.time() - start:.2f}s)')
 
 # functions to support get_perturbation_results
-def perturb_texts(texts, span_length, pct, mask_model, mask_tokenizer, ceil_pct=False):
-    chunk_size = args.chunk_size
+def perturb_texts(texts, span_length, pct, ceil_pct=False):
+    chunk_size = globals.chunk_size
 
     outputs = []
     for i in tqdm.tqdm(range(0, len(texts), chunk_size), desc="Applying perturbations"):
-        outputs.extend(perturb_texts_(texts[i:i + chunk_size], span_length, pct, mask_model, mask_tokenizer, ceil_pct=ceil_pct))
+        outputs.extend(perturb_texts_(texts[i:i + chunk_size], span_length, pct, ceil_pct=ceil_pct))
     return outputs
 
 
-def perturb_texts_(texts, span_length, pct, mask_model, mask_tokenizer, ceil_pct=False):
+def perturb_texts_(texts, span_length, pct, ceil_pct=False):
     masked_texts = [tokenize_and_mask(x, span_length, pct, ceil_pct) for x in texts]
-    raw_fills = replace_masks(masked_texts, mask_model, mask_tokenizer)
+    raw_fills = replace_masks(masked_texts)
     extracted_fills = extract_fills(raw_fills)
     perturbed_texts = apply_extracted_fills(masked_texts, extracted_fills)
 
@@ -61,7 +47,7 @@ def perturb_texts_(texts, span_length, pct, mask_model, mask_tokenizer, ceil_pct
         idxs = [idx for idx, x in enumerate(perturbed_texts) if x == '']
         print(f'WARNING: {len(idxs)} texts have no fills. Trying again [attempt {attempts}].')
         masked_texts = [tokenize_and_mask(x, span_length, pct, ceil_pct) for idx, x in enumerate(texts) if idx in idxs]
-        raw_fills = replace_masks(masked_texts, mask_model, mask_tokenizer)
+        raw_fills = replace_masks(masked_texts)
         extracted_fills = extract_fills(raw_fills)
         new_perturbed_texts = apply_extracted_fills(masked_texts, extracted_fills)
         for idx, x in zip(idxs, new_perturbed_texts):
@@ -99,12 +85,12 @@ def tokenize_and_mask(text, span_length, pct, ceil_pct=False, buffer_size=1):
     text = ' '.join(tokens)
     return text
 
-def replace_masks(texts, mask_model, mask_tokenizer):
+def replace_masks(texts):
     n_expected = count_masks(texts)
-    stop_id = mask_tokenizer.encode(f"<extra_id_{max(n_expected)}>")[0]
-    tokens = mask_tokenizer(texts, return_tensors="pt", padding=True).to(DEVICE)
-    outputs = mask_model.generate(**tokens, max_length=150, do_sample=True, top_p=args.mask_top_p, num_return_sequences=1, eos_token_id=stop_id)
-    return mask_tokenizer.batch_decode(outputs, skip_special_tokens=False)
+    stop_id = globals.MASK_TOKENIZER.encode(f"<extra_id_{max(n_expected)}>")[0]
+    tokens = globals.MASK_TOKENIZER(texts, return_tensors="pt", padding=True).to(globals.device)
+    outputs = globals.MASK_MODEL.generate(**tokens, max_length=150, do_sample=True, top_p=globals.mask_top_p, num_return_sequences=1, eos_token_id=stop_id)
+    return globals.MASK_TOKENIZER.batch_decode(outputs, skip_special_tokens=False)
 
 def extract_fills(texts):
     # remove <pad> from beginning of each text
@@ -140,39 +126,26 @@ def apply_extracted_fills(masked_texts, extracted_fills):
 def count_masks(texts):
     return [len([x for x in text.split() if x.startswith("<extra_id_")]) for text in texts]
 
-# Get the log likelihood of each text under the base_model
+# Get the log likelihood of each text under the globals.BASE_MODEL
 def get_ll(text):
-    if args.openai_model:        
-        kwargs = { "engine": args.openai_model, "temperature": 0, "max_tokens": 0, "echo": True, "logprobs": 0}
-        r = openai.Completion.create(prompt=f"<|endoftext|>{text}", **kwargs)
-        result = r['choices'][0]
-        tokens, logprobs = result["logprobs"]["tokens"][1:], result["logprobs"]["token_logprobs"][1:]
-
-        assert len(tokens) == len(logprobs), f"Expected {len(tokens)} logprobs, got {len(logprobs)}"
-
-        return np.mean(logprobs)
-    else:
-        with torch.no_grad():
-            tokenized = base_tokenizer(text, return_tensors="pt").to(DEVICE)
-            labels = tokenized.input_ids
-            return -base_model(**tokenized, labels=labels).loss.item()
+    with torch.no_grad():
+        tokenized = globals.BASE_TOKENIZER(text, return_tensors="pt").to(globals.device)
+        labels = tokenized.input_ids
+        return -globals.BASE_MODEL(**tokenized, labels=labels).loss.item()
 
 
 def get_lls(texts):
-    if not args.openai_model:
-        return [get_ll(text) for text in texts]
-    else:
-        global API_TOKEN_COUNTER
+    global API_TOKEN_COUNTER
 
-        # use GPT2_TOKENIZER to get total number of tokens
-        total_tokens = sum(len(GPT2_TOKENIZER.encode(text)) for text in texts)
-        API_TOKEN_COUNTER += total_tokens * 2  # multiply by two because OpenAI double-counts echo_prompt tokens
+    # use GPT2_TOKENIZER to get total number of tokens
+    total_tokens = sum(len(globals.GPT2_TOKENIZER.encode(text)) for text in texts)
+    API_TOKEN_COUNTER += total_tokens * 2  # multiply by two because OpenAI double-counts echo_prompt tokens
 
-        pool = ThreadPool(args.batch_size)
-        return pool.map(get_ll, texts)
+    pool = ThreadPool(globals.batch_size)
+    return pool.map(get_ll, texts)
 
 
-def get_perturbation_results(text, mask_model, mask_tokenizer, span_length=10, n_perturbations=1, n_perturbation_rounds=1, pct_words_masked=0.15):
+def get_perturbation_results(text, span_length=10, n_perturbations=1, n_perturbation_rounds=1, pct_words_masked=0.15):
     load_mask_model()
 
     torch.manual_seed(0)
@@ -182,7 +155,7 @@ def get_perturbation_results(text, mask_model, mask_tokenizer, span_length=10, n
     # TODO
     # text = data["original"]
 
-    perturb_fn = functools.partial(perturb_texts, mask_model=mask_model, mask_tokenizer=mask_tokenizer, span_length=span_length, pct=pct_words_masked)
+    perturb_fn = functools.partial(perturb_texts, span_length=span_length, pct=pct_words_masked)
 
     p_text = perturb_fn([x for x in text for _ in range(n_perturbations)])
     for _ in range(n_perturbation_rounds - 1):
@@ -211,9 +184,9 @@ def get_perturbation_results(text, mask_model, mask_tokenizer, span_length=10, n
     return results
 
 # The Function
-def get_score(text, mask_model, mask_tokenizer):
+def get_score(text):
     # run perturbation experiments
     n_perturbations = 100 # detectGPT uses 100 perturbations for evaluation
     span_length = 2
-    perturbation_results = get_perturbation_results(text, span_length, n_perturbations, mask_model, mask_tokenizer)
+    perturbation_results = get_perturbation_results(text, span_length, n_perturbations)
     return perturbation_results
