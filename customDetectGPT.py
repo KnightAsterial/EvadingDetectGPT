@@ -37,9 +37,13 @@ def perturb_texts(texts, span_length, pct, ceil_pct=False):
 
 def perturb_texts_(texts, span_length, pct, ceil_pct=False):
     masked_texts = [tokenize_and_mask(x, span_length, pct, ceil_pct) for x in texts]
+    print("masked")
     raw_fills = replace_masks(masked_texts)
+    print("replaced")
     extracted_fills = extract_fills(raw_fills)
+    print("extracted")
     perturbed_texts = apply_extracted_fills(masked_texts, extracted_fills)
+    print("perturbed")
 
     # Handle the fact that sometimes the model doesn't generate the right number of fills and we have to try again
     attempts = 1
@@ -57,6 +61,7 @@ def perturb_texts_(texts, span_length, pct, ceil_pct=False):
     return perturbed_texts
 
 def tokenize_and_mask(text, span_length, pct, ceil_pct=False, buffer_size=1):
+    print("starting tokenize_and_mask")
     tokens = text.split(' ')
     mask_string = '<<<mask>>>'
 
@@ -87,9 +92,13 @@ def tokenize_and_mask(text, span_length, pct, ceil_pct=False, buffer_size=1):
 
 def replace_masks(texts):
     n_expected = count_masks(texts)
+    print('entered replace masks')
     stop_id = globals.MASK_TOKENIZER.encode(f"<extra_id_{max(n_expected)}>")[0]
+    print('stopid done')
     tokens = globals.MASK_TOKENIZER(texts, return_tensors="pt", padding=True).to(globals.device)
+    print('tokens done)')
     outputs = globals.MASK_MODEL.generate(**tokens, max_length=150, do_sample=True, top_p=globals.mask_top_p, num_return_sequences=1, eos_token_id=stop_id)
+    print('outputs done')
     return globals.MASK_TOKENIZER.batch_decode(outputs, skip_special_tokens=False)
 
 def extract_fills(texts):
@@ -186,7 +195,7 @@ def get_perturbation_results(text, span_length=10, n_perturbations=1, n_perturba
 # The Function
 def get_score(text):
     # run perturbation experiments
-    n_perturbations = 100 # detectGPT uses 100 perturbations for evaluation
+    n_perturbations = globals.n_perturbations # detectGPT uses 100 perturbations for evaluation
     span_length = 2
     perturbation_results = get_perturbation_results(text, span_length, n_perturbations)
     return perturbation_results

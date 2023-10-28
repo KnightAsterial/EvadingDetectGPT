@@ -9,9 +9,11 @@ device = "cpu"
 int8 = False
 bf16 = True
 
-chuck_size = 20
+chunk_size = 20
 batch_size = 50
 mask_top_p = 1.0
+
+n_perturbations = 1#00 
 
 #####################################################################
 
@@ -39,7 +41,7 @@ MASK_TOKENIZER = transformers.AutoTokenizer.from_pretrained(mask_filling_model_n
 base_model_kwargs = {"torch_dtype": torch.float16}
 BASE_MODEL = transformers.AutoModelForCausalLM.from_pretrained(base_model_name, **base_model_kwargs)
 
-BASE_TOKENIZER = transformers.AutoTokenizer.from_pretrained(base_model_name, cache_dir=cache_dir)
+BASE_TOKENIZER = transformers.AutoTokenizer.from_pretrained(base_model_name)
 BASE_TOKENIZER.pad_token_id = BASE_TOKENIZER.eos_token_id
 
 
