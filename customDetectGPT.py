@@ -144,11 +144,9 @@ def get_ll(text):
 
 
 def get_lls(texts):
-    global API_TOKEN_COUNTER
-
     # use GPT2_TOKENIZER to get total number of tokens
     total_tokens = sum(len(globals.GPT2_TOKENIZER.encode(text)) for text in texts)
-    API_TOKEN_COUNTER += total_tokens * 2  # multiply by two because OpenAI double-counts echo_prompt tokens
+    globals.API_TOKEN_COUNTER += total_tokens * 2  # multiply by two because OpenAI double-counts echo_prompt tokens
 
     pool = ThreadPool(globals.batch_size)
     return pool.map(get_ll, texts)
@@ -193,9 +191,9 @@ def get_perturbation_results(text, span_length=10, n_perturbations=1, n_perturba
     return results
 
 # The Function
-def get_score(text):
+def get_score(texts):
     # run perturbation experiments
     n_perturbations = globals.n_perturbations # detectGPT uses 100 perturbations for evaluation
     span_length = 2
-    perturbation_results = get_perturbation_results(text, span_length, n_perturbations)
+    perturbation_results = get_perturbation_results(texts, span_length, n_perturbations)
     return perturbation_results
