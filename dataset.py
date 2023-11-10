@@ -158,36 +158,49 @@ def get_pair_dataloader(
     """
 
 
-    dataset = load_dataset("aadityaubhat/GPT-wiki-intro")
-    splits = dataset.train_test_split(test_size=0.1)
-    train = splits["train"]
-    test = splits["test"]
+    dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[:1%]")
+    # splits = dataset.train_test_split(test_size=0.1)
+    # train = splits["train"]
+    # test = splits["test"]
+    
+    # 90% train, 10% test + validation
+    train_testvalid = dataset.train_test_split(test_size=0.1)
+    # Split the 10% test + valid in half test, half valid
+    test_valid = train_testvalid['test'].train_test_split(test_size=0.5)
+    # gather everyone if you want to have a single DatasetDict
+    # train_test_valid_dataset = DatasetDict({
+    #     'train': train_testvalid['train'],
+    #     'test': test_valid['test'],
+    #     'valid': test_valid['train']})
 
-    train_dataset = PairedDataset(num_support, num_query, train)
-    test_dataset = PairedDataset(num_support, num_query, test)
+    # train_dataset = PairedDataset(num_support, num_query, train)
+    # test_dataset = PairedDataset(num_support, num_query, test)
+    
+    # return [PairedDataset(num_support, num_query, dataset) in [train_testvalid["train"], test_valid["train"], test_valid["test"]]]
 
-    return (
-        dataloader.DataLoader(
-            dataset=train_dataset,
+    paired_dataset = PairedDataset(num_support, num_query, dataset)
+    return [dataloader.DataLoader(
+            dataset=paired_dataset,
             batch_size=batch_size,
-            sampler=PairSampler(dataset.avail_edits, num_tasks_per_epoch),
+            sampler=PairSampler(paired_dataset.avail_edits, num_tasks_per_epoch),
             # num_workers=num_workers,
             collate_fn=identity,
             pin_memory=torch.cuda.is_available(),
-            drop_last=True
-        ),
-        dataloader.DataLoader(
-            dataset=test_dataset,
-            batch_size=batch_size,
-            sampler=PairSampler(dataset.avail_edits, num_tasks_per_epoch),
-            # num_workers=num_workers,
-            collate_fn=identity,
-            pin_memory=torch.cuda.is_available(),
-            drop_last=True
-        )
-    )
+            drop_last=True) 
+            for dataset in [train_testvalid["train"], test_valid["train"], test_valid["test"]]]
 
-train_dataloader, test_dataloader = get_pair_dataloader("train[:10%]", 4, 1, 1)
+    #     dataloader.DataLoader(
+    #         dataset=test_dataset,
+    #         batch_size=batch_size,
+    #         sampler=PairSampler(dataset.avail_edits, num_tasks_per_epoch),
+    #         # num_workers=num_workers,
+    #         collate_fn=identity,
+    #         pin_memory=torch.cuda.is_available(),
+    #         drop_last=True
+    #     )
+    # )
+
+# train_dataloader, test_dataloader = get_pair_dataloader("train[:10%]", 4, 1, 1)
 # print(dataload, test_dataloaderer)
 # for i, batch in enumerate(dataloader):
 #     print(i)

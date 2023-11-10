@@ -14,10 +14,12 @@ from torch import nn
 import torch.nn.functional as F
 from torch import autograd
 from torch.utils import tensorboard
-from google_drive_downloader import GoogleDriveDownloader as gdd
+# from google_drive_downloader import GoogleDriveDownloader as gdd
 
-import omniglot
-import util
+# import omniglot
+# import util
+import dataset
+import globals
 
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
@@ -68,7 +70,7 @@ class LoRALayerWrapper(nn.Module):
         return base_out + (x @ self.lora_A) @ self.lora_B.T
     
 def get_lora_model(rank):
-    tokenizer = AutoTokenizer.from_pretrained("Vamsi/T5_Paraphrase_Paws")
+    # tokenizer = AutoTokenizer.from_pretrained("Vamsi/T5_Paraphrase_Paws")
     model = AutoModelForSeq2SeqLM.from_pretrained("Vamsi/T5_Paraphrase_Paws")
     for m in model.encoder.block:
         m.layer[0].SelfAttention.q = LoRALayerWrapper(m.layer[0].SelfAttention.q, rank)
@@ -93,6 +95,8 @@ def get_lora_model(rank):
 
         m.layer[2].DenseReluDense.wi = LoRALayerWrapper(m.layer[2].DenseReluDense.wi, rank)
         m.layer[2].DenseReluDense.wo = LoRALayerWrapper(m.layer[2].DenseReluDense.wo, rank)
+    
+    return model
 
 
 class MAML:
@@ -144,46 +148,6 @@ class MAML:
             if isinstance(m, LoRALayerWrapper):
                 meta_parameters[f"{i}_A"] = m.lora_A
                 meta_parameters[f"{i}_B"] = m.lora_B
-                
-
-
-
-        # for i in range(NUM_CONV_LAYERS):
-        #     meta_parameters[f'conv{i}'] = nn.init.xavier_uniform_(
-        #         torch.empty(
-        #             NUM_HIDDEN_CHANNELS,
-        #             in_channels,
-        #             KERNEL_SIZE,
-        #             KERNEL_SIZE,
-        #             requires_grad=True,
-        #             device=self.device
-        #         )
-        #     )
-        #     meta_parameters[f'b{i}'] = nn.init.(
-        #         torch.empty(zeros_
-        #             NUM_HIDDEN_CHANNELS,
-        #             requires_grad=True,
-        #             device=self.device
-        #         )
-        #     )
-        #     in_channels = NUM_HIDDEN_CHANNELS
-
-        # construct linear head layer
-        # meta_parameters[f'w{NUM_CONV_LAYERS}'] = nn.init.xavier_uniform_(
-        #     torch.empty(
-        #         num_outputs,
-        #         NUM_HIDDEN_CHANNELS,
-        #         requires_grad=True,
-        #         device=self.device
-        #     )
-        # )
-        # meta_parameters[f'b{NUM_CONV_LAYERS}'] = nn.init.zeros_(
-        #     torch.empty(
-        #         num_outputs,
-        #         requires_grad=True,
-        #         device=self.device
-        #     )
-        # )
 
         self._meta_parameters = meta_parameters
         self._num_inner_steps = num_inner_steps
@@ -260,9 +224,10 @@ class MAML:
 
         # https://huggingface.co/docs/transformers/model_doc/t5#transformers.T5ForConditionalGeneration
 
+        return model(**input, labels=labels)
         
 
-    def _inner_loop(self, images, labels, train, model, tokenizer):
+    def _inner_loop(self, ai_text, human_text, train, model):
         """Computes the adapted network parameters via the MAML inner loop.\
         
         input is 1 task (k human/ai pairs)
@@ -285,16 +250,15 @@ class MAML:
         # put the copied parameters into our model
         for i, m in enumerate(model.modules()):
             if isinstance(m, LoRALayerWrapper):
-                m.lora_A = copied_parameters[f"{i}_A"]
-                m.lora_B = copied_parameters[f"{i}_B"]
-        
+                m.lora_A = nn.Parameter(copied_parameters[f"{i}_A"])
+                m.lora_B = nn.Parameter(copied_parameters[f"{i}_B"])
         
 
         # set lora weights        
         for _ in range(self._num_inner_steps):
             
-            # tokenize inputs
-            loss = model(**input, labels=labels).loss.item()
+            # TODO: not sure if this is working
+            loss = model(**ai_text, labels=human_text).loss.item()
 
             gradients = autograd.grad(loss, copied_parameters.values(), create_graph=train)
             for i, k in enumerate(copied_parameters.keys()):
@@ -303,7 +267,7 @@ class MAML:
         ### END CODE HERE ###
         return copied_parameters
 
-    def _outer_step(self, task_batch, train):
+    def _outer_step(self, task_batch, train, model, tokenizer):
         """Computes the MAML loss and metrics on a batch of tasks.
 
         Args:
@@ -324,13 +288,18 @@ class MAML:
         for task in task_batch:
             
             ai_support, human_support, ai_query, human_query = task
+            # tokenize inputs
+            ai_support = tokenizer(ai_support, return_tensors="pt", padding=True).to(self.device)
+            human_support = tokenizer(human_support, return_tensors="pt", padding=True).to(self.device)
+            ai_query = tokenizer(ai_query, return_tensors="pt", padding=True).to(self.device)
+            human_query = tokenizer(human_query, return_tensors="pt", padding=True).to(self.device)
             
-            ai_support = ai_support.to(self.device)
-            human_support = human_support.to(self.device)
-            ai_query = ai_query.to(self.device)
-            human_query = human_query.to(self.device)
+            # ai_support = ai_support
+            # human_support = human_support
+            # ai_query = ai_query
+            # human_query = human_query
             
-            parameters = self._inner_loop(ai_support, human_support, train)
+            parameters = self._inner_loop(ai_support, human_support, train, model)
             # Use F.cross_entropy to compute classification losses.
             loss = self._forward(ai_query, parameters, )
             outer_loss_batch.append(loss)
@@ -338,7 +307,7 @@ class MAML:
             # Make sure to populate outer_loss_batch, accuracies_support_batch,
             # and accuracy_query_batch.
             # support accuracy: The first element (index 0) should be the accuracy before any steps are taken.
-            accuracy_query_batch.append(util.score(logits, labels_query))
+            # accuracy_query_batch.append(util.score(logits, labels_query))
         
             ### END CODE HERE ###
         outer_loss = torch.mean(torch.stack(outer_loss_batch))
@@ -349,7 +318,7 @@ class MAML:
         accuracy_query = np.mean(accuracy_query_batch)
         return outer_loss, accuracies_support, accuracy_query
 
-    def train(self, dataloader_meta_train, dataloader_meta_val, writer):
+    def train(self, dataloader_meta_train, dataloader_meta_val, writer, model, tokenizer):
         """Train the MAML.
 
         Consumes dataloader_meta_train to optimize MAML meta-parameters
@@ -368,7 +337,7 @@ class MAML:
         ):
             self._optimizer.zero_grad()
             outer_loss, accuracies_support, accuracy_query = (
-                self._outer_step(task_batch, train=True)
+                self._outer_step(task_batch, True, model, tokenizer)
             )
             outer_loss.backward()
             self._optimizer.step()
@@ -460,18 +429,20 @@ class MAML:
         Args:
             dataloader_test (DataLoader): loader for test tasks
         """
-        accuracies = []
-        for task_batch in dataloader_test:
-            _, _, accuracy_query = self._outer_step(task_batch, train=False)
-            accuracies.append(accuracy_query)
-        mean = np.mean(accuracies)
-        std = np.std(accuracies)
-        mean_95_confidence_interval = 1.96 * std / np.sqrt(NUM_TEST_TASKS)
-        print(
-            f'Accuracy over {NUM_TEST_TASKS} test tasks: '
-            f'mean {mean:.3f}, '
-            f'95% confidence interval {mean_95_confidence_interval:.3f}'
-        )
+        # TODO: Implement this method with detectpgt score?
+        raise NotImplementedError
+        # accuracies = []
+        # for task_batch in dataloader_test:
+        #     _, _, accuracy_query = self._outer_step(task_batch, train=False)
+        #     accuracies.append(accuracy_query)
+        # mean = np.mean(accuracies)
+        # std = np.std(accuracies)
+        # mean_95_confidence_interval = 1.96 * std / np.sqrt(NUM_TEST_TASKS)
+        # print(
+        #     f'Accuracy over {NUM_TEST_TASKS} test tasks: '
+        #     f'mean {mean:.3f}, '
+        #     f'95% confidence interval {mean_95_confidence_interval:.3f}'
+        # )
 
     def load(self, checkpoint_step):
         """Loads a checkpoint.
@@ -536,9 +507,14 @@ def main(args):
         log_dir = f'./logs/maml/omniglot.way_{args.num_way}.support_{args.num_support}.query_{args.num_query}.inner_steps_{args.num_inner_steps}.inner_lr_{args.inner_lr}.learn_inner_lrs_{args.learn_inner_lrs}.outer_lr_{args.outer_lr}.batch_size_{args.batch_size}'  # pylint: disable=line-too-long
     print(f'log_dir: {log_dir}')
     writer = tensorboard.SummaryWriter(log_dir=log_dir)
+    
+    # Initialize lora model
+    model = get_lora_model(8)
+    tokenizer = AutoTokenizer.from_pretrained("Vamsi/T5_Paraphrase_Paws")
 
     maml = MAML(
-        args.num_way,
+        model,
+        # args.num_way,
         args.num_inner_steps,
         args.inner_lr,
         args.learn_inner_lrs,
@@ -551,6 +527,9 @@ def main(args):
         maml.load(args.checkpoint_step)
     else:
         print('Checkpoint loading skipped.')
+        
+    # train_dataloader, test_dataloader = dataset.get_pair_dataloader("train[:10%]", 4, 1, 1)
+
 
     if not args.test:
         num_training_tasks = args.batch_size * (args.num_train_iterations -
@@ -561,28 +540,33 @@ def main(args):
             f'num_support={args.num_support}, '
             f'num_query={args.num_query}'
         )
-        dataloader_meta_train = omniglot.get_omniglot_dataloader(
-            'train',
-            args.batch_size,
-            args.num_way,
-            args.num_support,
-            args.num_query,
-            num_training_tasks,
-            args.num_workers
-        )
-        dataloader_meta_val = omniglot.get_omniglot_dataloader(
-            'val',
-            args.batch_size,
-            args.num_way,
-            args.num_support,
-            args.num_query,
-            args.batch_size * 4,
-            args.num_workers
-        )
+        
+        dataloader_meta_train, dataloader_meta_val, dataloader_test = dataset.get_pair_dataloader(args.batch_size, args.num_support, args.num_query)
+        
+        # dataloader_meta_train = omniglot.get_omniglot_dataloader(
+        #     'train',
+        #     args.batch_size,
+        #     args.num_way,
+        #     args.num_support,
+        #     args.num_query,
+        #     num_training_tasks,
+        #     args.num_workers
+        # )
+        # dataloader_meta_val = omniglot.get_omniglot_dataloader(
+        #     'val',
+        #     args.batch_size,
+        #     args.num_way,
+        #     args.num_support,
+        #     args.num_query,
+        #     args.batch_size * 4,
+        #     args.num_workers
+        # )
         maml.train(
             dataloader_meta_train,
             dataloader_meta_val,
-            writer
+            writer,
+            model,
+            tokenizer
         )
     else:
         print(
@@ -591,15 +575,15 @@ def main(args):
             f'num_support={args.num_support}, '
             f'num_query={args.num_query}'
         )
-        dataloader_test = omniglot.get_omniglot_dataloader(
-            'test',
-            1,
-            args.num_way,
-            args.num_support,
-            args.num_query,
-            NUM_TEST_TASKS,
-            args.num_workers
-        )
+        # dataloader_test = omniglot.get_omniglot_dataloader(
+        #     'test',
+        #     1,
+        #     args.num_way,
+        #     args.num_support,
+        #     args.num_query,
+        #     NUM_TEST_TASKS,
+        #     args.num_workers
+        # )
         maml.test(dataloader_test)
 
 
@@ -637,16 +621,16 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    if args.cache == True:
-        # Download Omniglot Dataset
-        if not os.path.isdir("./omniglot_resized"):
-            gdd.download_file_from_google_drive(
-                file_id="1iaSFXIYC3AB8q9K_M-oVMa4pmB7yKMtI",
-                dest_path="./omniglot_resized.zip",
-                unzip=True,
-            )
-        assert os.path.isdir("./omniglot_resized")
-    else:
-        main(args)
+    # if args.cache == True:
+    #     # Download Omniglot Dataset
+    #     if not os.path.isdir("./omniglot_resized"):
+    #         gdd.download_file_from_google_drive(
+    #             file_id="1iaSFXIYC3AB8q9K_M-oVMa4pmB7yKMtI",
+    #             dest_path="./omniglot_resized.zip",
+    #             unzip=True,
+    #         )
+    #     assert os.path.isdir("./omniglot_resized")
+    # else:
+    main(args)
 
 
