@@ -38,6 +38,8 @@ class LoRALayerWrapper(nn.Module):
         super().__init__()
 
         self.base_module = base_module
+        self.weight = base_module.weight # to satisfy "isinstance(self.wo.weight, torch.Tensor)" check for T5.DenseReluDense layer
+                                         # https://github.com/huggingface/transformers/blob/7ee995fd9c692761c4601ddbffa2ac2ec9f27b0b/src/transformers/models/t5/modeling_t5.py#L292C5-L292C5
 
         ###
         ### Set up your LoRA-augmented layer here.
@@ -54,8 +56,8 @@ class LoRALayerWrapper(nn.Module):
         # random initialize lora_A
         # intialize lora_B to zero, gradient for lora_A will become non zero second round
         # dim of AB^T = base_module.weight.size
-        self.lora_A = nn.Parameter(torch.randn((base_module.weight.size(0), lora_rank)))
-        self.lora_B = nn.Parameter(torch.zeros((base_module.weight.size(1), lora_rank)))
+        self.lora_A = torch.randn((base_module.weight.size(0), lora_rank), requires_grad=True)
+        self.lora_B = torch.zeros((base_module.weight.size(1), lora_rank), requires_grad=True)
         
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -66,8 +68,8 @@ class LoRALayerWrapper(nn.Module):
         ###
 
         ## YOUR CODE HERE, complete for Q2.2b
-        # X(W + AB^T) = XW + XAB^T = XW + (XA)B^T
-        return base_out + (x @ self.lora_A) @ self.lora_B.T
+        # For nn.Linear layer: X(W + AB^T)^T = XW^T + XBA^T = XW + (XB)A^T
+        return base_out + (x @ self.lora_B) @ self.lora_A.T
     
 def get_lora_model(rank):
     # tokenizer = AutoTokenizer.from_pretrained("Vamsi/T5_Paraphrase_Paws")
@@ -210,21 +212,21 @@ class MAML:
 
     '''
 
-    def _forward(self, input, labels, model):
-        """Computes predicted classification logits.
+    # def _forward(self, input, labels, model):
+    #     """Computes predicted classification logits.
 
-        Args:
-            inputs (Dict): dict of tokenized inputs
-                input_ids:
-                attention_mask:
+    #     Args:
+    #         inputs (Dict): dict of tokenized inputs
+    #             input_ids:
+    #             attention_mask:
 
-        Returns:
-            the cross-entropy loss between the input and the label
-        """
+    #     Returns:
+    #         the cross-entropy loss between the input and the label
+    #     """
 
-        # https://huggingface.co/docs/transformers/model_doc/t5#transformers.T5ForConditionalGeneration
+    #     # https://huggingface.co/docs/transformers/model_doc/t5#transformers.T5ForConditionalGeneration
 
-        return model(**input, labels=labels)
+    #     return model(**input, labels=labels)
         
 
     def _inner_loop(self, ai_text, human_text, train, model):
@@ -242,6 +244,7 @@ class MAML:
         Returns:
             parameters (dict[str, Tensor]): adapted network parameters    
         """
+        print("\/ \/ \/ started inner loop")
         copied_parameters = {
             k: torch.clone(v)
             for k, v in self._meta_parameters.items()
@@ -250,20 +253,21 @@ class MAML:
         # put the copied parameters into our model
         for i, m in enumerate(model.modules()):
             if isinstance(m, LoRALayerWrapper):
-                m.lora_A = nn.Parameter(copied_parameters[f"{i}_A"])
-                m.lora_B = nn.Parameter(copied_parameters[f"{i}_B"])
+                m.lora_A = copied_parameters[f"{i}_A"]
+                m.lora_B = copied_parameters[f"{i}_B"]
         
 
         # set lora weights        
         for _ in range(self._num_inner_steps):
             
             # TODO: not sure if this is working
-            loss = model(**ai_text, labels=human_text).loss.item()
+            loss = model(**ai_text, labels=human_text).loss
 
             gradients = autograd.grad(loss, copied_parameters.values(), create_graph=train)
             for i, k in enumerate(copied_parameters.keys()):
                 copied_parameters[k] = copied_parameters[k] - self._inner_lrs[k] * gradients[i]
-        
+
+        print("/\ /\ /\ ended inner loop")
         ### END CODE HERE ###
         return copied_parameters
 
@@ -283,16 +287,19 @@ class MAML:
                 parameters, averaged over the task batch
         """
         outer_loss_batch = []
-        accuracies_support_batch = []
-        accuracy_query_batch = []
+        # accuracies_support_batch = []
+        # accuracy_query_batch = []
         for task in task_batch:
             
             ai_support, human_support, ai_query, human_query = task
+            print(human_support)
+            print("----")
+
             # tokenize inputs
             ai_support = tokenizer(ai_support, return_tensors="pt", padding=True).to(self.device)
-            human_support = tokenizer(human_support, return_tensors="pt", padding=True).to(self.device)
+            human_support = tokenizer(human_support, return_tensors="pt", padding=True)["input_ids"].to(self.device)
             ai_query = tokenizer(ai_query, return_tensors="pt", padding=True).to(self.device)
-            human_query = tokenizer(human_query, return_tensors="pt", padding=True).to(self.device)
+            human_query = tokenizer(human_query, return_tensors="pt", padding=True)["input_ids"].to(self.device)
             
             # ai_support = ai_support
             # human_support = human_support
@@ -301,7 +308,11 @@ class MAML:
             
             parameters = self._inner_loop(ai_support, human_support, train, model)
             # Use F.cross_entropy to compute classification losses.
-            loss = self._forward(ai_query, parameters, )
+            # loss = self._forward(ai_query, parameters, )
+
+            # Model still has the PHI parameters set inside self._inner_loop
+            loss = model(**ai_query, labels=human_query).loss
+
             outer_loss_batch.append(loss)
             # Use util.score to compute accuracies.
             # Make sure to populate outer_loss_batch, accuracies_support_batch,
@@ -311,12 +322,12 @@ class MAML:
         
             ### END CODE HERE ###
         outer_loss = torch.mean(torch.stack(outer_loss_batch))
-        accuracies_support = np.mean(
-            accuracies_support_batch,
-            axis=0
-        )
-        accuracy_query = np.mean(accuracy_query_batch)
-        return outer_loss, accuracies_support, accuracy_query
+        # accuracies_support = np.mean(
+        #     accuracies_support_batch,
+        #     axis=0
+        # )
+        # accuracy_query = np.mean(accuracy_query_batch)
+        return outer_loss
 
     def train(self, dataloader_meta_train, dataloader_meta_val, writer, model, tokenizer):
         """Train the MAML.
@@ -336,89 +347,43 @@ class MAML:
                 start=self._start_train_step
         ):
             self._optimizer.zero_grad()
-            outer_loss, accuracies_support, accuracy_query = (
-                self._outer_step(task_batch, True, model, tokenizer)
-            )
+
+            print("Start of outer loop")
+            print(self._meta_parameters["8_A"], self._meta_parameters["8_B"])
+
+            outer_loss = self._outer_step(task_batch, True, model, tokenizer)
+
             outer_loss.backward()
             self._optimizer.step()
+
+            print("End of outer loop")
+            print(self._meta_parameters["8_A"], self._meta_parameters["8_B"])
+
 
             if i_step % LOG_INTERVAL == 0:
                 print(
                     f'Iteration {i_step}: '
                     f'loss: {outer_loss.item():.3f}, '
-                    f'pre-adaptation support accuracy: '
-                    f'{accuracies_support[0]:.3f}, '
-                    f'post-adaptation support accuracy: '
-                    f'{accuracies_support[-1]:.3f}, '
-                    f'post-adaptation query accuracy: '
-                    f'{accuracy_query:.3f}'
                 )
                 writer.add_scalar('loss/train', outer_loss.item(), i_step)
-                writer.add_scalar(
-                    'train_accuracy/pre_adapt_support',
-                    accuracies_support[0],
-                    i_step
-                )
-                writer.add_scalar(
-                    'train_accuracy/post_adapt_support',
-                    accuracies_support[-1],
-                    i_step
-                )
-                writer.add_scalar(
-                    'train_accuracy/post_adapt_query',
-                    accuracy_query,
-                    i_step
-                )
+
 
             if i_step % VAL_INTERVAL == 0:
                 losses = []
-                accuracies_pre_adapt_support = []
-                accuracies_post_adapt_support = []
-                accuracies_post_adapt_query = []
+
                 for val_task_batch in dataloader_meta_val:
-                    outer_loss, accuracies_support, accuracy_query = (
-                        self._outer_step(val_task_batch, train=False)
-                    )
+                    outer_loss = self._outer_step(val_task_batch, False, model, tokenizer)
                     losses.append(outer_loss.item())
-                    accuracies_pre_adapt_support.append(accuracies_support[0])
-                    accuracies_post_adapt_support.append(accuracies_support[-1])
-                    accuracies_post_adapt_query.append(accuracy_query)
+
                 loss = np.mean(losses)
-                accuracy_pre_adapt_support = np.mean(
-                    accuracies_pre_adapt_support
-                )
-                accuracy_post_adapt_support = np.mean(
-                    accuracies_post_adapt_support
-                )
-                accuracy_post_adapt_query = np.mean(
-                    accuracies_post_adapt_query
-                )
+
                 print(
                     f'Validation: '
                     f'loss: {loss:.3f}, '
-                    f'pre-adaptation support accuracy: '
-                    f'{accuracy_pre_adapt_support:.3f}, '
-                    f'post-adaptation support accuracy: '
-                    f'{accuracy_post_adapt_support:.3f}, '
-                    f'post-adaptation query accuracy: '
-                    f'{accuracy_post_adapt_query:.3f}'
+
                 )
                 writer.add_scalar('loss/val', loss, i_step)
-                writer.add_scalar(
-                    'val_accuracy/pre_adapt_support',
-                    accuracy_pre_adapt_support,
-                    i_step
-                )
-                writer.add_scalar(
-                    'val_accuracy/post_adapt_support',
-                    accuracy_post_adapt_support,
-                    i_step
-                )
-                writer.add_scalar(
-                    'val_accuracy/post_adapt_query',
-                    accuracy_post_adapt_query,
-                    i_step
-                )
+
 
             if i_step % SAVE_INTERVAL == 0:
                 self._save(i_step)
@@ -504,7 +469,7 @@ def main(args):
 
     log_dir = args.log_dir
     if log_dir is None:
-        log_dir = f'./logs/maml/omniglot.way_{args.num_way}.support_{args.num_support}.query_{args.num_query}.inner_steps_{args.num_inner_steps}.inner_lr_{args.inner_lr}.learn_inner_lrs_{args.learn_inner_lrs}.outer_lr_{args.outer_lr}.batch_size_{args.batch_size}'  # pylint: disable=line-too-long
+        log_dir = f'./logs/maml/omniglot.support_{args.num_support}.query_{args.num_query}.inner_steps_{args.num_inner_steps}.inner_lr_{args.inner_lr}.learn_inner_lrs_{args.learn_inner_lrs}.outer_lr_{args.outer_lr}.batch_size_{args.batch_size}'  # pylint: disable=line-too-long
     print(f'log_dir: {log_dir}')
     writer = tensorboard.SummaryWriter(log_dir=log_dir)
     
@@ -536,12 +501,12 @@ def main(args):
                                                 args.checkpoint_step - 1)
         print(
             f'Training on {num_training_tasks} tasks with composition: '
-            f'num_way={args.num_way}, '
+            # f'num_way={args.num_way}, '
             f'num_support={args.num_support}, '
             f'num_query={args.num_query}'
         )
         
-        dataloader_meta_train, dataloader_meta_val, dataloader_test = dataset.get_pair_dataloader(args.batch_size, args.num_support, args.num_query)
+        dataloader_meta_train, dataloader_meta_val, dataloader_test = dataset.get_pair_dataloaders(args.batch_size, args.num_support, args.num_query)
         
         # dataloader_meta_train = omniglot.get_omniglot_dataloader(
         #     'train',
@@ -571,7 +536,7 @@ def main(args):
     else:
         print(
             f'Testing on tasks with composition '
-            f'num_way={args.num_way}, '
+            # f'num_way={args.num_way}, '
             f'num_support={args.num_support}, '
             f'num_query={args.num_query}'
         )
@@ -591,11 +556,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Train a MAML!')
     parser.add_argument('--log_dir', type=str, default=None,
                         help='directory to save to or load from')
-    parser.add_argument('--num_way', type=int, default=5,
-                        help='number of classes in a task')
-    parser.add_argument('--num_support', type=int, default=1,
+    parser.add_argument('--num_support', type=int, default=10,
                         help='number of support examples per class in a task')
-    parser.add_argument('--num_query', type=int, default=15,
+    parser.add_argument('--num_query', type=int, default=1,
                         help='number of query examples per class in a task')
     parser.add_argument('--num_inner_steps', type=int, default=1,
                         help='number of inner-loop updates')

@@ -138,21 +138,19 @@ def identity(x):
     return x
 
 
-def get_pair_dataloader(
+def get_pair_dataloaders(
         batch_size,
         num_support,
         num_query,
         num_workers=2,
         num_tasks_per_epoch=3000,
 ):
-    """Returns a dataloader.DataLoader for Omniglot.
+    """Returns three dataloader.DataLoader for paired human/AI text
 
     Args:
-        split (str): one of 'train', 'val', 'test'
         batch_size (int): number of tasks per batch
-        num_way (int): number of classes per task
-        num_support (int): number of support examples per class
-        num_query (int): number of query examples per class
+        num_support (int): number of support examples per task
+        num_query (int): number of query examples per task
         num_tasks_per_epoch (int): number of tasks before DataLoader is
             exhausted
     """
@@ -178,16 +176,16 @@ def get_pair_dataloader(
     
     # return [PairedDataset(num_support, num_query, dataset) in [train_testvalid["train"], test_valid["train"], test_valid["test"]]]
 
-    paired_dataset = PairedDataset(num_support, num_query, dataset)
+    paired_datasets = [PairedDataset(num_support, num_query, split_dataset) for split_dataset in [train_testvalid["train"], test_valid["train"], test_valid["test"]]]
     return [dataloader.DataLoader(
-            dataset=paired_dataset,
-            batch_size=batch_size,
-            sampler=PairSampler(paired_dataset.avail_edits, num_tasks_per_epoch),
-            # num_workers=num_workers,
-            collate_fn=identity,
-            pin_memory=torch.cuda.is_available(),
-            drop_last=True) 
-            for dataset in [train_testvalid["train"], test_valid["train"], test_valid["test"]]]
+                dataset=paired_dataset,
+                batch_size=batch_size,
+                sampler=PairSampler(paired_dataset.avail_edits, num_tasks_per_epoch),
+                # num_workers=num_workers,
+                collate_fn=identity,
+                pin_memory=torch.cuda.is_available(),
+                drop_last=True) 
+            for paired_dataset in paired_datasets]
 
     #     dataloader.DataLoader(
     #         dataset=test_dataset,
