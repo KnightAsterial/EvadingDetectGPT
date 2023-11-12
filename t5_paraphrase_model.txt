@@ -136,3 +136,47 @@ T5ForConditionalGeneration(
   )
   (lm_head): Linear(in_features=768, out_features=32128, bias=False)
 )
+
+
+
+
+    '''
+    IDEA
+
+    init:
+        model = gpt2
+        meta_parameters = []
+        for layer in gpt2:
+            layer = LoraWrapperLayer(layer)
+            meta_parameters.extend [layer.lora_A, layer.lora_B] )
+        optimizer = adam(meta_parameters)
+
+    __inner_loop:
+        parameter_copy = torch.clone(meta_parameters)
+
+        for layer in gpt2:
+            layer.loraA = parameter_copy[layer][A]         <<-- different from hw2 bc we substitute in the copies into the original model
+            layer.loraB = parameter_copy[layer][B]          <<-- instead of copying all the parameters and appying them manually
+
+        for iter in inner loop
+            result = model(inputs)                          <<-- different from hw2 bc we call the model with substituted parameters instead of copying manually
+            calculate loss                                     
+            torch.autograd.grad(loss, parameter_copy)
+            manually apply gradients on parameter_copy
+
+        return loss
+
+    __outer_loop
+        run __inner_loop
+
+        for layer in gpt2:
+            layer.loraA = original_meta_parameters[layer][A]         <<-- different from hw2 bc we substitute in the copies into the original model
+            layer.loraB = original_meta_parameters[layer][B]          <<-- instead of copying all the parameters and appying them manually
+
+        if test: return results of inner_loop
+
+        if train:
+            loss.backward()
+            optimzer.step()
+
+    '''

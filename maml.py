@@ -34,7 +34,7 @@ VAL_INTERVAL = LOG_INTERVAL * 5
 NUM_TEST_TASKS = 600
 
 class LoRALayerWrapper(nn.Module):
-    def __init__(self, base_module: nn.Module, lora_rank: int):
+    def __init__(self, base_module: nn.Module, lora_rank: int, device):
         super().__init__()
 
         self.base_module = base_module
@@ -56,8 +56,8 @@ class LoRALayerWrapper(nn.Module):
         # random initialize lora_A
         # intialize lora_B to zero, gradient for lora_A will become non zero second round
         # dim of AB^T = base_module.weight.size
-        self.lora_A = torch.randn((base_module.weight.size(0), lora_rank), requires_grad=True)
-        self.lora_B = torch.zeros((base_module.weight.size(1), lora_rank), requires_grad=True)
+        self.lora_A = torch.randn((base_module.weight.size(0), lora_rank), requires_grad=True, device=device)
+        self.lora_B = torch.zeros((base_module.weight.size(1), lora_rank), requires_grad=True, device=device)
         
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -71,32 +71,32 @@ class LoRALayerWrapper(nn.Module):
         # For nn.Linear layer: X(W + AB^T)^T = XW^T + XBA^T = XW + (XB)A^T
         return base_out + (x @ self.lora_B) @ self.lora_A.T
     
-def get_lora_model(rank):
+def get_lora_model(rank, device):
     # tokenizer = AutoTokenizer.from_pretrained("Vamsi/T5_Paraphrase_Paws")
-    model = AutoModelForSeq2SeqLM.from_pretrained("Vamsi/T5_Paraphrase_Paws")
+    model = AutoModelForSeq2SeqLM.from_pretrained("Vamsi/T5_Paraphrase_Paws").to(device)
     for m in model.encoder.block:
-        m.layer[0].SelfAttention.q = LoRALayerWrapper(m.layer[0].SelfAttention.q, rank)
-        m.layer[0].SelfAttention.k = LoRALayerWrapper(m.layer[0].SelfAttention.k, rank)
-        m.layer[0].SelfAttention.v = LoRALayerWrapper(m.layer[0].SelfAttention.v, rank)
-        m.layer[0].SelfAttention.o = LoRALayerWrapper(m.layer[0].SelfAttention.o, rank)
+        m.layer[0].SelfAttention.q = LoRALayerWrapper(m.layer[0].SelfAttention.q, rank, device)
+        m.layer[0].SelfAttention.k = LoRALayerWrapper(m.layer[0].SelfAttention.k, rank, device)
+        m.layer[0].SelfAttention.v = LoRALayerWrapper(m.layer[0].SelfAttention.v, rank, device)
+        m.layer[0].SelfAttention.o = LoRALayerWrapper(m.layer[0].SelfAttention.o, rank, device)
 
-        m.layer[1].DenseReluDense.wi = LoRALayerWrapper(m.layer[1].DenseReluDense.wi, rank)
-        m.layer[1].DenseReluDense.wo = LoRALayerWrapper(m.layer[1].DenseReluDense.wo, rank)
+        m.layer[1].DenseReluDense.wi = LoRALayerWrapper(m.layer[1].DenseReluDense.wi, rank, device)
+        m.layer[1].DenseReluDense.wo = LoRALayerWrapper(m.layer[1].DenseReluDense.wo, rank, device)
 
     for m in model.decoder.block:
-        m.layer[0].SelfAttention.q = LoRALayerWrapper(m.layer[0].SelfAttention.q, rank)
-        m.layer[0].SelfAttention.k = LoRALayerWrapper(m.layer[0].SelfAttention.k, rank)
-        m.layer[0].SelfAttention.v = LoRALayerWrapper(m.layer[0].SelfAttention.v, rank)
-        m.layer[0].SelfAttention.o = LoRALayerWrapper(m.layer[0].SelfAttention.o, rank)
+        m.layer[0].SelfAttention.q = LoRALayerWrapper(m.layer[0].SelfAttention.q, rank, device)
+        m.layer[0].SelfAttention.k = LoRALayerWrapper(m.layer[0].SelfAttention.k, rank, device)
+        m.layer[0].SelfAttention.v = LoRALayerWrapper(m.layer[0].SelfAttention.v, rank, device)
+        m.layer[0].SelfAttention.o = LoRALayerWrapper(m.layer[0].SelfAttention.o, rank, device)
 
-        m.layer[1].EncDecAttention.q = LoRALayerWrapper(m.layer[1].EncDecAttention.q, rank)
-        m.layer[1].EncDecAttention.k = LoRALayerWrapper(m.layer[1].EncDecAttention.k, rank)
-        m.layer[1].EncDecAttention.v = LoRALayerWrapper(m.layer[1].EncDecAttention.v, rank)
-        m.layer[1].EncDecAttention.o = LoRALayerWrapper(m.layer[1].EncDecAttention.o, rank)
+        m.layer[1].EncDecAttention.q = LoRALayerWrapper(m.layer[1].EncDecAttention.q, rank, device)
+        m.layer[1].EncDecAttention.k = LoRALayerWrapper(m.layer[1].EncDecAttention.k, rank, device)
+        m.layer[1].EncDecAttention.v = LoRALayerWrapper(m.layer[1].EncDecAttention.v, rank, device)
+        m.layer[1].EncDecAttention.o = LoRALayerWrapper(m.layer[1].EncDecAttention.o, rank, device)
 
 
-        m.layer[2].DenseReluDense.wi = LoRALayerWrapper(m.layer[2].DenseReluDense.wi, rank)
-        m.layer[2].DenseReluDense.wo = LoRALayerWrapper(m.layer[2].DenseReluDense.wo, rank)
+        m.layer[2].DenseReluDense.wi = LoRALayerWrapper(m.layer[2].DenseReluDense.wi, rank, device)
+        m.layer[2].DenseReluDense.wo = LoRALayerWrapper(m.layer[2].DenseReluDense.wo, rank, device)
     
     return model
 
@@ -108,6 +108,7 @@ class MAML:
             self,
             # num_outputs,
             model,
+            tokenizer,
             num_inner_steps,
             inner_lr,
             learn_inner_lrs,
@@ -146,6 +147,7 @@ class MAML:
         # in_channels = NUM_INPUT_CHANNELS
 
         self.model = model
+        self.tokenizer = tokenizer
         for i, m in enumerate(model.modules()):
             if isinstance(m, LoRALayerWrapper):
                 meta_parameters[f"{i}_A"] = m.lora_A
@@ -171,65 +173,7 @@ class MAML:
         self._start_train_step = 0
 
 
-    '''
-    IDEA
-
-    init:
-        model = gpt2
-        meta_parameters = []
-        for layer in gpt2:
-            layer = LoraWrapperLayer(layer)
-            meta_parameters.extend [layer.lora_A, layer.lora_B] )
-        optimizer = adam(meta_parameters)
-
-    __inner_loop:
-        parameter_copy = torch.clone(meta_parameters)
-
-        for layer in gpt2:
-            layer.loraA = parameter_copy[layer][A]         <<-- different from hw2 bc we substitute in the copies into the original model
-            layer.loraB = parameter_copy[layer][B]          <<-- instead of copying all the parameters and appying them manually
-
-        for iter in inner loop
-            result = model(inputs)                          <<-- different from hw2 bc we call the model with substituted parameters instead of copying manually
-            calculate loss                                     
-            torch.autograd.grad(loss, parameter_copy)
-            manually apply gradients on parameter_copy
-
-        return loss
-
-    __outer_loop
-        run __inner_loop
-
-        for layer in gpt2:
-            layer.loraA = original_meta_parameters[layer][A]         <<-- different from hw2 bc we substitute in the copies into the original model
-            layer.loraB = original_meta_parameters[layer][B]          <<-- instead of copying all the parameters and appying them manually
-
-        if test: return results of inner_loop
-
-        if train:
-            loss.backward()
-            optimzer.step()
-
-    '''
-
-    # def _forward(self, input, labels, model):
-    #     """Computes predicted classification logits.
-
-    #     Args:
-    #         inputs (Dict): dict of tokenized inputs
-    #             input_ids:
-    #             attention_mask:
-
-    #     Returns:
-    #         the cross-entropy loss between the input and the label
-    #     """
-
-    #     # https://huggingface.co/docs/transformers/model_doc/t5#transformers.T5ForConditionalGeneration
-
-    #     return model(**input, labels=labels)
-        
-
-    def _inner_loop(self, ai_text, human_text, train, model):
+    def _inner_loop(self, ai_text, human_text, train):
         """Computes the adapted network parameters via the MAML inner loop.\
         
         input is 1 task (k human/ai pairs)
@@ -251,7 +195,7 @@ class MAML:
         }
 
         # put the copied parameters into our model
-        for i, m in enumerate(model.modules()):
+        for i, m in enumerate(self.model.modules()):
             if isinstance(m, LoRALayerWrapper):
                 m.lora_A = copied_parameters[f"{i}_A"]
                 m.lora_B = copied_parameters[f"{i}_B"]
@@ -261,7 +205,7 @@ class MAML:
         for _ in range(self._num_inner_steps):
             
             # TODO: not sure if this is working
-            loss = model(**ai_text, labels=human_text).loss
+            loss = self.model(**ai_text, labels=human_text).loss
 
             gradients = autograd.grad(loss, copied_parameters.values(), create_graph=train)
             for i, k in enumerate(copied_parameters.keys()):
@@ -271,7 +215,7 @@ class MAML:
         ### END CODE HERE ###
         return copied_parameters
 
-    def _outer_step(self, task_batch, train, model, tokenizer):
+    def _outer_step(self, task_batch, train):
         """Computes the MAML loss and metrics on a batch of tasks.
 
         Args:
@@ -292,26 +236,27 @@ class MAML:
         for task in task_batch:
             
             ai_support, human_support, ai_query, human_query = task
-            print(human_support)
             print("----")
 
             # tokenize inputs
-            ai_support = tokenizer(ai_support, return_tensors="pt", padding=True).to(self.device)
-            human_support = tokenizer(human_support, return_tensors="pt", padding=True)["input_ids"].to(self.device)
-            ai_query = tokenizer(ai_query, return_tensors="pt", padding=True).to(self.device)
-            human_query = tokenizer(human_query, return_tensors="pt", padding=True)["input_ids"].to(self.device)
+            ai_support = ["paraphrase: " + sentence + "</s>" for sentence in ai_support]
+            ai_query = ["paraphrase: " + sentence + "</s>" for sentence in ai_query]
+            ai_support = self.tokenizer(ai_support, return_tensors="pt", padding=True).to(self.device)
+            human_support = self.tokenizer(human_support, return_tensors="pt", padding=True)["input_ids"].to(self.device)
+            ai_query = self.tokenizer(ai_query, return_tensors="pt", padding=True).to(self.device)
+            human_query = self.tokenizer(human_query, return_tensors="pt", padding=True)["input_ids"].to(self.device)
             
             # ai_support = ai_support
             # human_support = human_support
             # ai_query = ai_query
             # human_query = human_query
             
-            parameters = self._inner_loop(ai_support, human_support, train, model)
+            parameters = self._inner_loop(ai_support, human_support, train)
             # Use F.cross_entropy to compute classification losses.
             # loss = self._forward(ai_query, parameters, )
 
             # Model still has the PHI parameters set inside self._inner_loop
-            loss = model(**ai_query, labels=human_query).loss
+            loss = self.model(**ai_query, labels=human_query).loss
 
             outer_loss_batch.append(loss)
             # Use util.score to compute accuracies.
@@ -329,7 +274,7 @@ class MAML:
         # accuracy_query = np.mean(accuracy_query_batch)
         return outer_loss
 
-    def train(self, dataloader_meta_train, dataloader_meta_val, writer, model, tokenizer):
+    def train(self, dataloader_meta_train, dataloader_meta_val, writer):
         """Train the MAML.
 
         Consumes dataloader_meta_train to optimize MAML meta-parameters
@@ -351,7 +296,7 @@ class MAML:
             print("Start of outer loop")
             print(self._meta_parameters["8_A"], self._meta_parameters["8_B"])
 
-            outer_loss = self._outer_step(task_batch, True, model, tokenizer)
+            outer_loss = self._outer_step(task_batch, True)
 
             outer_loss.backward()
             self._optimizer.step()
@@ -372,7 +317,7 @@ class MAML:
                 losses = []
 
                 for val_task_batch in dataloader_meta_val:
-                    outer_loss = self._outer_step(val_task_batch, False, model, tokenizer)
+                    outer_loss = self._outer_step(val_task_batch, False)
                     losses.append(outer_loss.item())
 
                 loss = np.mean(losses)
@@ -474,11 +419,13 @@ def main(args):
     writer = tensorboard.SummaryWriter(log_dir=log_dir)
     
     # Initialize lora model
-    model = get_lora_model(8)
+    model = get_lora_model(8, DEVICE)
+    
     tokenizer = AutoTokenizer.from_pretrained("Vamsi/T5_Paraphrase_Paws")
 
     maml = MAML(
         model,
+        tokenizer,
         # args.num_way,
         args.num_inner_steps,
         args.inner_lr,
@@ -508,30 +455,10 @@ def main(args):
         
         dataloader_meta_train, dataloader_meta_val, dataloader_test = dataset.get_pair_dataloaders(args.batch_size, args.num_support, args.num_query)
         
-        # dataloader_meta_train = omniglot.get_omniglot_dataloader(
-        #     'train',
-        #     args.batch_size,
-        #     args.num_way,
-        #     args.num_support,
-        #     args.num_query,
-        #     num_training_tasks,
-        #     args.num_workers
-        # )
-        # dataloader_meta_val = omniglot.get_omniglot_dataloader(
-        #     'val',
-        #     args.batch_size,
-        #     args.num_way,
-        #     args.num_support,
-        #     args.num_query,
-        #     args.batch_size * 4,
-        #     args.num_workers
-        # )
         maml.train(
             dataloader_meta_train,
             dataloader_meta_val,
             writer,
-            model,
-            tokenizer
         )
     else:
         print(
