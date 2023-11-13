@@ -56,8 +56,8 @@ class LoRALayerWrapper(nn.Module):
         # random initialize lora_A
         # intialize lora_B to zero, gradient for lora_A will become non zero second round
         # dim of AB^T = base_module.weight.size
-        self.lora_A = torch.randn((base_module.weight.size(0), lora_rank), requires_grad=True, device=device)
-        self.lora_B = torch.zeros((base_module.weight.size(1), lora_rank), requires_grad=True, device=device)
+        self.lora_A = torch.randn((base_module.weight.size(0), lora_rank), requires_grad=True, device=device, dtype=torch.bfloat16)
+        self.lora_B = torch.zeros((base_module.weight.size(1), lora_rank), requires_grad=True, device=device, dtype=torch.bfloat16)
         
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -73,7 +73,7 @@ class LoRALayerWrapper(nn.Module):
     
 def get_lora_model(rank, device):
     # tokenizer = AutoTokenizer.from_pretrained("Vamsi/T5_Paraphrase_Paws")
-    model = AutoModelForSeq2SeqLM.from_pretrained("Vamsi/T5_Paraphrase_Paws").to(device)
+    model = AutoModelForSeq2SeqLM.from_pretrained("Vamsi/T5_Paraphrase_Paws", torch_dtype=torch.bfloat16).to(device)
     for m in model.encoder.block:
         m.layer[0].SelfAttention.q = LoRALayerWrapper(m.layer[0].SelfAttention.q, rank, device)
         m.layer[0].SelfAttention.k = LoRALayerWrapper(m.layer[0].SelfAttention.k, rank, device)
@@ -98,6 +98,8 @@ def get_lora_model(rank, device):
         m.layer[2].DenseReluDense.wi = LoRALayerWrapper(m.layer[2].DenseReluDense.wi, rank, device)
         m.layer[2].DenseReluDense.wo = LoRALayerWrapper(m.layer[2].DenseReluDense.wo, rank, device)
     
+    for param in model.parameters():
+        param.requires_grad = False
     return model
 
 
@@ -189,6 +191,7 @@ class MAML:
             parameters (dict[str, Tensor]): adapted network parameters    
         """
         print("\/ \/ \/ started inner loop")
+        # print(torch.cuda.memory_summary())
         copied_parameters = {
             k: torch.clone(v)
             for k, v in self._meta_parameters.items()
@@ -199,6 +202,9 @@ class MAML:
             if isinstance(m, LoRALayerWrapper):
                 m.lora_A = copied_parameters[f"{i}_A"]
                 m.lora_B = copied_parameters[f"{i}_B"]
+
+        # print("after copied param")
+        # print(torch.cuda.memory_summary())
         
 
         # set lora weights        
@@ -208,6 +214,9 @@ class MAML:
             loss = self.model(**ai_text, labels=human_text).loss
 
             gradients = autograd.grad(loss, copied_parameters.values(), create_graph=train)
+            # print("after autograd")
+            # print(torch.cuda.memory_summary())
+
             for i, k in enumerate(copied_parameters.keys()):
                 copied_parameters[k] = copied_parameters[k] - self._inner_lrs[k] * gradients[i]
 
@@ -233,10 +242,11 @@ class MAML:
         outer_loss_batch = []
         # accuracies_support_batch = []
         # accuracy_query_batch = []
-        for task in task_batch:
+        for i, task in enumerate(task_batch):
             
             ai_support, human_support, ai_query, human_query = task
-            print("----")
+            # print(self._meta_parameters["8_A"])
+            # print(self._meta_parameters["8_B"])
 
             # tokenize inputs
             ai_support = ["paraphrase: " + sentence + "</s>" for sentence in ai_support]
@@ -250,7 +260,6 @@ class MAML:
             # human_support = human_support
             # ai_query = ai_query
             # human_query = human_query
-            
             parameters = self._inner_loop(ai_support, human_support, train)
             # Use F.cross_entropy to compute classification losses.
             # loss = self._forward(ai_query, parameters, )
@@ -259,6 +268,7 @@ class MAML:
             loss = self.model(**ai_query, labels=human_query).loss
 
             outer_loss_batch.append(loss)
+
             # Use util.score to compute accuracies.
             # Make sure to populate outer_loss_batch, accuracies_support_batch,
             # and accuracy_query_batch.
@@ -293,16 +303,14 @@ class MAML:
         ):
             self._optimizer.zero_grad()
 
-            print("Start of outer loop")
-            print(self._meta_parameters["8_A"], self._meta_parameters["8_B"])
-
             outer_loss = self._outer_step(task_batch, True)
 
             outer_loss.backward()
             self._optimizer.step()
 
-            print("End of outer loop")
-            print(self._meta_parameters["8_A"], self._meta_parameters["8_B"])
+            # print(torch.cuda.memory_summary())
+
+            
 
 
             if i_step % LOG_INTERVAL == 0:

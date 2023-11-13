@@ -61,7 +61,7 @@ class PairedDataset(dataset.Dataset):
             example['ratio'] = example['edit_distance'] / example['generated_intro_len']
             return example
         
-        self.dataset = self.dataset.map(calc_edit_distance, num_proc=10)
+        self.dataset = self.dataset.filter(lambda example: len(example['wiki_intro']) < 2000).map(calc_edit_distance, num_proc=10)
         counter = Counter(self.dataset["edit_distance"])
         self.avail_edits = [k for k, v in counter.items() if v >= num_support+num_query]
         # self.avail_edits = list(set(self.dataset["edit_distance"]))
@@ -156,7 +156,7 @@ def get_pair_dataloaders(
     """
 
 
-    dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[:1%]")
+    dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train")
     # splits = dataset.train_test_split(test_size=0.1)
     # train = splits["train"]
     # test = splits["test"]
@@ -177,15 +177,16 @@ def get_pair_dataloaders(
     # return [PairedDataset(num_support, num_query, dataset) in [train_testvalid["train"], test_valid["train"], test_valid["test"]]]
 
     paired_datasets = [PairedDataset(num_support, num_query, split_dataset) for split_dataset in [train_testvalid["train"], test_valid["train"], test_valid["test"]]]
+    print(paired_datasets[1].avail_edits)
     return [dataloader.DataLoader(
                 dataset=paired_dataset,
                 batch_size=batch_size,
-                sampler=PairSampler(paired_dataset.avail_edits, num_tasks_per_epoch),
+                sampler=PairSampler(paired_dataset.avail_edits, num_tasks),
                 # num_workers=num_workers,
                 collate_fn=identity,
                 pin_memory=torch.cuda.is_available(),
                 drop_last=True) 
-            for paired_dataset in paired_datasets]
+            for num_tasks, paired_dataset in zip([num_tasks_per_epoch, 4, 100], paired_datasets)]
 
     #     dataloader.DataLoader(
     #         dataset=test_dataset,
