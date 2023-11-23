@@ -4,7 +4,7 @@ import torch
 ## CONFIGURATION
 mask_filling_model_name = "t5-large"
 base_model_name = "EleutherAI/gpt-neo-125m"
-device = "gpu"
+device = "cuda"
 # cache_dir = "~/.cache"
 int8 = False
 bf16 = True
