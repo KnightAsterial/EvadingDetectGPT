@@ -61,7 +61,8 @@ class PairedDataset(dataset.Dataset):
             example['ratio'] = example['edit_distance'] / example['generated_intro_len']
             return example
         
-        self.dataset = self.dataset.filter(lambda example: len(example['wiki_intro']) < 2000).map(calc_edit_distance, num_proc=10)
+        # TODO: Remove hard coded dataset length
+        self.dataset = self.dataset.filter(lambda example: len(example['wiki_intro']) + len(example['generated_intro']) < 3000).map(calc_edit_distance, num_proc=10)
         counter = Counter(self.dataset["edit_distance"])
         self.avail_edits = [k for k, v in counter.items() if v >= num_support+num_query]
         # self.avail_edits = list(set(self.dataset["edit_distance"]))
