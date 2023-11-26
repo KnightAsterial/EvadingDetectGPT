@@ -4,7 +4,7 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 import nltk
 nltk.download('punkt')
 
-dataset = load_dataset("EdinburghNLP/xsum", split="train[:100]")
+dataset = load_dataset("EdinburghNLP/xsum", split="train[:300]")
 batch_size = 32
 
 # load in model for paraphrasing
@@ -49,12 +49,13 @@ def process(example):
                 num_return_sequences=1
             )
             paraphrased_sents = tokenizer.batch_decode(output, skip_special_tokens=True,clean_up_tokenization_spaces=True)
-            paraphrased_sents = [paraphrased_sent.split() for paraphrased_sent in paraphrased_sents]
-
-            new_lines.append(' '.join(paraphrased_sents))
+            # paraphrased_sents = [paraphrased_sent.split() for paraphrased_sent in paraphrased_sents]
+            # new_lines.append(' '.join(paraphrased_sents))
+            new_lines.append(paraphrased_sents[0])
     return {"generated": '\n'.join(new_lines)}
 
-dataset.map(process, remove_columns=['summary'])
+dataset = dataset.filter(lambda example: len(tokenizer(example["document"])["input_ids"]) < 510)
+dataset = dataset.map(process, remove_columns=['summary'])
 #--------
 
 dataset = dataset.with_format("torch")
