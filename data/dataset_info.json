@@ -17,7 +17,7 @@
   },
   "download_size": 257302866,
   "features": {
-    "summary": {
+    "document": {
       "dtype": "string",
       "_type": "Value"
     },
