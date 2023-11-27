@@ -31,16 +31,16 @@ data_ai = ["In a landmark decision, the government announces a nationwide initia
            "Renowned tech company releases an innovative AI-powered personal assistant, set to revolutionize daily tasks. The advanced system adapts to user preferences, streamlining schedules, and providing real-time information. Early reviews praise its intuitive interface and efficiency, marking a significant advancement in artificial intelligence applications for personal use.",
            "Amid rising concerns about cybersecurity, a major tech conglomerate unveils a state-of-the-art encryption system. The new technology promises enhanced protection for user data, making it significantly more challenging for unauthorized access. Industry experts applaud the development, anticipating it will set a new standard for digital security in an increasingly interconnected world."]
 
-#from datasets import load_dataset
-#dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[:100]")
-#data_human = dataset["wiki_intro"]
-#data_ai = dataset["generated_intro"]
+from datasets import load_dataset
+dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[:100]")
+data_human = dataset["wiki_intro"]
+data_ai = dataset["generated_intro"]
 
 
 
-dataset = load_from_disk("/scratch/users/ryanzhao/EvadingDetectGPT/data")
-data_human = dataset["document"]
-data_ai = dataset["generated"]
+#dataset = load_from_disk("/scratch/users/ryanzhao/EvadingDetectGPT/data")
+#data_human = dataset["document"]
+#data_ai = dataset["generated"]
 
 res_human = get_score(data_human)
 # res_human = get_score(dataset["document"][:10])
