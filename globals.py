@@ -3,7 +3,8 @@ import torch
 
 ## CONFIGURATION
 mask_filling_model_name = "t5-large"
-base_model_name = "EleutherAI/gpt-neo-125m"
+# base_model_name = "EleutherAI/gpt-neo-125m"
+base_model_name = "EleutherAI/gpt-neo-1.3B"
 device = "cuda"
 # cache_dir = "~/.cache"
 int8 = False
@@ -14,6 +15,7 @@ batch_size = 50
 mask_top_p = 1.0
 
 n_perturbations = 10
+mask_pct = 0.2 # Default is 0.3
 
 API_TOKEN_COUNTER = 0
 

@@ -144,7 +144,7 @@ def get_lls(texts):
     return pool.map(get_ll, texts)
 
 
-def get_perturbation_results(text, span_length=2, n_perturbations=100, n_perturbation_rounds=1, pct_words_masked=0.30):
+def get_perturbation_results(text, span_length=2, n_perturbations=100, n_perturbation_rounds=1, pct_words_masked=globals.mask_pct):
     load_mask_model()
 
     torch.manual_seed(0)
