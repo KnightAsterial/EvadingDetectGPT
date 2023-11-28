@@ -4,7 +4,7 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 import nltk
 nltk.download('punkt')
 
-dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train")
+dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[:10%]")
 batch_size = 32
 
 # load in model for paraphrasing
@@ -76,7 +76,7 @@ def tokenize(example):
     return tokenizer(example["formatted"], return_tensors="pt", padding=True)
             
 
-dataset = dataset.filter(lambda example: len(tokenizer(example["document"])["input_ids"]) < 510)
+dataset = dataset.filter(lambda example: len(tokenizer(example["wiki_intro"])["input_ids"]) < 510)
 dataset = dataset.map(split_entry, batched=True, remove_columns=dataset.column_names, num_proc=8)
 dataset = dataset.map(format_sentences, num_proc=8)
 
@@ -98,5 +98,5 @@ def paraphrase(example):
     return {"ai_sents": tokenizer.batch_decode(output, skip_special_tokens=True,clean_up_tokenization_spaces=True)}
 
 dataset = dataset.map(paraphrase, remove_columns=["input_ids", "attention_mask", "formatted"], batched=True, batch_size=batch_size)
-print(dataset[:2])
+print(dataset[:10])
 dataset.save_to_disk("/scratch/users/ryanzhao/EvadingDetectGPT/data_t5_wikidoc")
