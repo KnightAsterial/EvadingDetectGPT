@@ -241,8 +241,6 @@ class MAML:
             ai_query = ["paraphrase: " + sentence + "</s>" for sentence in ai_query]
             ai_support = self.tokenizer(ai_support, return_tensors="pt", padding=True).to(self.device)
             human_support = self.tokenizer(human_support, return_tensors="pt", padding=True)["input_ids"].to(self.device)
-            if not train:
-                print("AI Query: ", ai_query)
             ai_query = self.tokenizer(ai_query, return_tensors="pt", padding=True).to(self.device)
             human_query = self.tokenizer(human_query, return_tensors="pt", padding=True)["input_ids"].to(self.device)
             
