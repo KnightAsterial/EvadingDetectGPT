@@ -229,6 +229,38 @@ class MAML:
     
 
     def _outer_step(self, task_batch, train):
+        outer_loss_batch = []
+        for i, task in enumerate(task_batch):
+            
+            ai_support, human_support, ai_query, human_query = task
+            
+            # tokenize inputs
+            ai_support = ["paraphrase: " + sentence + "</s>" for sentence in ai_support]
+            ai_query = ["paraphrase: " + sentence + "</s>" for sentence in ai_query]
+            ai_support = self.tokenizer(ai_support, return_tensors="pt", padding=True).to(self.device)
+            human_support = self.tokenizer(human_support, return_tensors="pt", padding=True)["input_ids"].to(self.device)
+            ai_query = self.tokenizer(ai_query, return_tensors="pt", padding=True).to(self.device)
+            human_query = self.tokenizer(human_query, return_tensors="pt", padding=True)["input_ids"].to(self.device)
+            
+            parameters = self._inner_loop(ai_support, human_support, train)
+
+            # Model still has the PHI parameters set inside self._inner_loop
+            loss = self.model(**ai_query, labels=human_query).loss
+            
+            outer_loss_batch.append(loss)
+
+            # Use util.score to compute accuracies.
+            # Make sure to populate outer_loss_batch, accuracies_support_batch,
+            # and accuracy_query_batch.
+            # support accuracy: The first element (index 0) should be the accuracy before any steps are taken.
+            # accuracy_query_batch.append(util.score(logits, labels_query))
+        
+            ### END CODE HERE ###
+        outer_loss = torch.mean(torch.stack(outer_loss_batch))
+        return outer_loss
+    
+
+    def _outer_step_test(self, task_batch, train):
         
         outer_loss_batch = []
         generated_output = []
@@ -353,7 +385,7 @@ class MAML:
         for task_batch, generated, sentence in zip(dataloader_test, dataset_ai_samples['generated'], dataset_ai_samples['sentences']):
             ai_support, human_support, _, human_query = task_batch[0]
             task_batch[0] = (ai_support, human_support, sentence, human_query)
-            generated_output_sentences = self._outer_step(task_batch, train=False)
+            generated_output_sentences = self._outer_step_test(task_batch, train=False)
             generated_sample = " ".join(generated_output_sentences)
 
             output["ai_sample"].append(generated)
