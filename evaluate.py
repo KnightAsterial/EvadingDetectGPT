@@ -13,10 +13,10 @@ def strip_whitespace(example, ai_label, human_label):
 # plt.hist(diff, bins=50)
 # plt.savefig("histogram.png")
 
-def plot_overlaying_histograms(human_scores, ai_scores, method):
+def plot_overlaying_histograms(human_scores, ai_scores, method, human_label, ai_label):
     plt.clf()
-    plt.hist(human_scores, bins=50, alpha=0.5, label="human")
-    plt.hist(ai_scores, bins=50, alpha=0.5, label="ai")
+    plt.hist(human_scores, bins=50, alpha=0.5, label=human_label)
+    plt.hist(ai_scores, bins=50, alpha=0.5, label=ai_label)
     plt.legend(loc='upper right')
     plt.savefig(f"{method}_histogram.png")
 
@@ -36,12 +36,12 @@ def get_precision_recall_metrics(real_preds, sample_preds):
 if __name__ == "__main__":
     
     # CONFIG
-    method = "baseline"
-    ai_label = "generated_intro"
-    human_label = "wiki_intro"
-    dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[:1000]")
+    method = "paraphrased"
+    ai_label = "ai_sample"
+    human_label = "rephrased_sample"
+    dataset = load_from_disk(f"test_out_wiki")
     
-    dataset = dataset.map(strip_whitespace, ai_label, human_label)
+    dataset = dataset.map(lambda example: strip_whitespace(example, ai_label, human_label))
     data_human = dataset[human_label]
     data_ai = dataset[ai_label]
     res_human = get_score(data_human)
@@ -51,6 +51,6 @@ if __name__ == "__main__":
     human_scores = [((d["ll"] - d["perturbed_ll"]) / d["perturbed_ll_std"]) if d["perturbed_ll_std"] != 0 else d["ll"] - d["perturbed_ll"] for d in res_human]
     ai_scores = [((d["ll"] - d["perturbed_ll"]) / d["perturbed_ll_std"]) if d["perturbed_ll_std"] != 0 else d["ll"] - d["perturbed_ll"] for d in res_ai]
 
-    plot_overlaying_histograms(human_scores, ai_scores, method)
+    plot_overlaying_histograms(human_scores, ai_scores, method, human_label, ai_label)
     fpr, tpr, roc_auc = get_roc_metrics(np.array(human_scores), np.array(ai_scores))
     print("ROC AUC:", roc_auc)
