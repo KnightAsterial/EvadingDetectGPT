@@ -28,8 +28,8 @@ NUM_HIDDEN_CHANNELS = 32
 KERNEL_SIZE = 3
 NUM_CONV_LAYERS = 4
 SUMMARY_INTERVAL = 10
-SAVE_INTERVAL = 100
-LOG_INTERVAL = 10
+SAVE_INTERVAL = 3000 # Previously 100
+LOG_INTERVAL = 100 # Previously 10
 VAL_INTERVAL = LOG_INTERVAL * 5
 NUM_TEST_TASKS = 600
 
@@ -190,7 +190,7 @@ class MAML:
         Returns:
             parameters (dict[str, Tensor]): adapted network parameters    
         """
-        print("\/ \/ \/ started inner loop")
+        # print("\/ \/ \/ started inner loop")
         # print(torch.cuda.memory_summary())
         copied_parameters = {
             k: torch.clone(v)
@@ -220,7 +220,7 @@ class MAML:
             for i, k in enumerate(copied_parameters.keys()):
                 copied_parameters[k] = copied_parameters[k] - self._inner_lrs[k] * gradients[i]
 
-        print("/\ /\ /\ ended inner loop")
+        # print("/\ /\ /\ ended inner loop")
         ### END CODE HERE ###
         return copied_parameters
 
@@ -420,7 +420,7 @@ def main(args):
 
     log_dir = args.log_dir
     if log_dir is None:
-        log_dir = f'./logs/maml/omniglot.support_{args.num_support}.query_{args.num_query}.inner_steps_{args.num_inner_steps}.inner_lr_{args.inner_lr}.learn_inner_lrs_{args.learn_inner_lrs}.outer_lr_{args.outer_lr}.batch_size_{args.batch_size}'  # pylint: disable=line-too-long
+        log_dir = f'./logs/maml/evadegpt.support_{args.num_support}.query_{args.num_query}.inner_steps_{args.num_inner_steps}.inner_lr_{args.inner_lr}.learn_inner_lrs_{args.learn_inner_lrs}.outer_lr_{args.outer_lr}.batch_size_{args.batch_size}.iters_{args.num_train_iterations}'  # pylint: disable=line-too-long
     print(f'log_dir: {log_dir}')
     writer = tensorboard.SummaryWriter(log_dir=log_dir)
     

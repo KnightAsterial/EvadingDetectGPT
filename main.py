@@ -32,10 +32,15 @@ data_ai = ["In a landmark decision, the government announces a nationwide initia
            "Amid rising concerns about cybersecurity, a major tech conglomerate unveils a state-of-the-art encryption system. The new technology promises enhanced protection for user data, making it significantly more challenging for unauthorized access. Industry experts applaud the development, anticipating it will set a new standard for digital security in an increasingly interconnected world."]
 
 from datasets import load_dataset
-dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[:100]")
+dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[:1000]")
+
+def strip_whitespace(example):
+    example["wiki_intro"] = " ".join(example["wiki_intro"].strip().split())
+    example["generated_intro"] = " ".join(example["generated_intro"].strip().split())
+dataset = dataset.map(strip_whitespace)
+
 data_human = dataset["wiki_intro"]
 data_ai = dataset["generated_intro"]
-
 
 
 #dataset = load_from_disk("/scratch/users/ryanzhao/EvadingDetectGPT/data")

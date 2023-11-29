@@ -2,7 +2,7 @@
 
 import torch
 from torch.utils.data import dataset, sampler, dataloader
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 import random
 import numpy as np
 from collections import Counter
@@ -57,17 +57,19 @@ class PairedDataset(dataset.Dataset):
         self.avail_edits = []
         
         def calc_edit_distance(example):
-            example['edit_distance'] = edit_distance(example['wiki_intro'], example['generated_intro'])
-            example['ratio'] = example['edit_distance'] / example['generated_intro_len']
+            example['edit_distance'] = edit_distance(example['human_sents'], example['ai_sents'])
+            example['ratio'] = example['edit_distance'] / (len(example['ai_sents']) if len(example['ai_sents']) != 0 else float('inf'))
             return example
         
         # TODO: Remove hard coded dataset length
-        self.dataset = self.dataset.filter(lambda example: len(example['wiki_intro']) + len(example['generated_intro']) < 3000).map(calc_edit_distance, num_proc=10)
+        self.dataset = self.dataset.filter(lambda example: len(example['human_sents']) + len(example['ai_sents']) < 3000).map(calc_edit_distance, num_proc=10)
+        print(self.dataset[0])
+        print(edit_distance(self.dataset[0]['human_sents'], self.dataset[0]['ai_sents']))
         counter = Counter(self.dataset["edit_distance"])
         self.avail_edits = [k for k, v in counter.items() if v >= num_support+num_query]
         # self.avail_edits = list(set(self.dataset["edit_distance"]))
         # print("OUTPUTTING EXAMPLE WITH", np.sort(np.array(self.dataset["edit_distance"]) / np.array(self.dataset["generated_intro_len"])), "edits!!!")
-
+        print(self.avail_edits)
         # check problem arguments
         assert num_support + num_query <= NUM_SAMPLES_PER_CLASS
         self._num_support = num_support
@@ -100,10 +102,10 @@ class PairedDataset(dataset.Dataset):
         idxs = np.random.choice(len(pairs), size=self._num_support + self._num_query)
         pairs = pairs.select(idxs)
 
-        ai_support.extend(pairs["wiki_intro"][:self._num_support])
-        ai_query.extend(pairs["wiki_intro"][self._num_support:])
-        human_support.extend(pairs["generated_intro"][:self._num_support])
-        human_query.extend(pairs["generated_intro"][self._num_support:])
+        ai_support.extend(pairs["human_sents"][:self._num_support])
+        ai_query.extend(pairs["human_sents"][self._num_support:])
+        human_support.extend(pairs["ai_sents"][:self._num_support])
+        human_query.extend(pairs["ai_sents"][self._num_support:])
 
         
         # # aggregate into tensors
@@ -156,8 +158,10 @@ def get_pair_dataloaders(
             exhausted
     """
 
+    dataset = load_from_disk('./data_t5_wikidoc')
+    dataset = dataset.with_format(None)
 
-    dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train")
+    # dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train")
     # splits = dataset.train_test_split(test_size=0.1)
     # train = splits["train"]
     # test = splits["test"]
