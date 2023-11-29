@@ -240,14 +240,10 @@ class MAML:
                 parameters, averaged over the task batch
         """
         outer_loss_batch = []
-        # accuracies_support_batch = []
-        # accuracy_query_batch = []
         for i, task in enumerate(task_batch):
             
             ai_support, human_support, ai_query, human_query = task
-            # print(self._meta_parameters["8_A"])
-            # print(self._meta_parameters["8_B"])
-
+            
             # tokenize inputs
             ai_support = ["paraphrase: " + sentence + "</s>" for sentence in ai_support]
             ai_query = ["paraphrase: " + sentence + "</s>" for sentence in ai_query]
@@ -256,17 +252,24 @@ class MAML:
             ai_query = self.tokenizer(ai_query, return_tensors="pt", padding=True).to(self.device)
             human_query = self.tokenizer(human_query, return_tensors="pt", padding=True)["input_ids"].to(self.device)
             
-            # ai_support = ai_support
-            # human_support = human_support
-            # ai_query = ai_query
-            # human_query = human_query
             parameters = self._inner_loop(ai_support, human_support, train)
-            # Use F.cross_entropy to compute classification losses.
-            # loss = self._forward(ai_query, parameters, )
 
             # Model still has the PHI parameters set inside self._inner_loop
             loss = self.model(**ai_query, labels=human_query).loss
 
+            if not train:
+                print("Human Query: ", human_query)
+                print("Generated: ",
+                    self.tokenizer.decode(self.model.generate(
+                                    **ai_query,
+                                    max_length=256,
+                                    do_sample=True,
+                                    top_k=200,
+                                    top_p=0.95,
+                                    num_return_sequences=1), skip_special_tokens=True,clean_up_tokenization_spaces=True))
+                    
+                    
+            
             outer_loss_batch.append(loss)
 
             # Use util.score to compute accuracies.
@@ -277,11 +280,7 @@ class MAML:
         
             ### END CODE HERE ###
         outer_loss = torch.mean(torch.stack(outer_loss_batch))
-        # accuracies_support = np.mean(
-        #     accuracies_support_batch,
-        #     axis=0
-        # )
-        # accuracy_query = np.mean(accuracy_query_batch)
+        
         return outer_loss
 
     def train(self, dataloader_meta_train, dataloader_meta_val, writer):
@@ -348,11 +347,10 @@ class MAML:
             dataloader_test (DataLoader): loader for test tasks
         """
         # TODO: Implement this method with detectpgt score?
-        raise NotImplementedError
-        # accuracies = []
-        # for task_batch in dataloader_test:
-        #     _, _, accuracy_query = self._outer_step(task_batch, train=False)
-        #     accuracies.append(accuracy_query)
+        outputs = []
+        for task_batch in dataloader_test:
+            _, _, accuracy_query = self._outer_step(task_batch, train=False)
+            # accuracies.append(accuracy_query)
         # mean = np.mean(accuracies)
         # std = np.std(accuracies)
         # mean_95_confidence_interval = 1.96 * std / np.sqrt(NUM_TEST_TASKS)
@@ -450,6 +448,7 @@ def main(args):
         
     # train_dataloader, test_dataloader = dataset.get_pair_dataloader("train[:10%]", 4, 1, 1)
 
+    dataloader_meta_train, dataloader_meta_val, dataloader_test = dataset.get_pair_dataloaders(args.batch_size, args.num_support, args.num_query)
 
     if not args.test:
         num_training_tasks = args.batch_size * (args.num_train_iterations -
@@ -461,7 +460,6 @@ def main(args):
             f'num_query={args.num_query}'
         )
         
-        dataloader_meta_train, dataloader_meta_val, dataloader_test = dataset.get_pair_dataloaders(args.batch_size, args.num_support, args.num_query, args.num_workers, args.num_train_iterations)
         
         maml.train(
             dataloader_meta_train,
