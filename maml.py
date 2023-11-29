@@ -22,7 +22,7 @@ import dataset
 import globals
 
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-from datasets import load_from_disk, load_dataset
+from datasets import load_from_disk, load_dataset, Dataset
 import nltk
 nltk.download('punkt')
 
@@ -361,7 +361,7 @@ class MAML:
             output["ai_sample"].append(generated)
             output["rephrased_sample"].append(generated_sample)
 
-        ds = dataset.Dataset.from_dict(output)
+        ds = Dataset.from_dict(output)
         ds.save_to_disk(data_output_dir)
 
 
