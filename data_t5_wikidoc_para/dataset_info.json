@@ -1,0 +1,42 @@
+{
+  "builder_name": "csv",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "gpt-wiki-intro",
+  "dataset_size": 447752168,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/aadityaubhat/GPT-wiki-intro@017258d41991489752363bfa4cbcc12725786967/GPT-wiki-intro.csv.zip": {
+      "num_bytes": 127274450,
+      "checksum": null
+    }
+  },
+  "download_size": 127274450,
+  "features": {
+    "wiki_intro": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "generated": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 575026618,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 447752168,
+      "num_examples": 150000,
+      "dataset_name": "gpt-wiki-intro"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}
