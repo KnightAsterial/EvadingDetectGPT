@@ -22,6 +22,9 @@ import dataset
 import globals
 
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from datasets import load_from_disk, load_dataset
+import nltk
+nltk.download('punkt')
 
 NUM_INPUT_CHANNELS = 1
 NUM_HIDDEN_CHANNELS = 32
@@ -223,23 +226,12 @@ class MAML:
         # print("/\ /\ /\ ended inner loop")
         ### END CODE HERE ###
         return copied_parameters
+    
 
     def _outer_step(self, task_batch, train):
-        """Computes the MAML loss and metrics on a batch of tasks.
-
-        Args:
-            task_batch (tuple): batch of tasks from an Omniglot DataLoader
-            train (bool): whether we are training or evaluating
-
-        Returns:
-            outer_loss (Tensor): mean MAML loss over the batch, scalar
-            accuracies_support (ndarray): support set accuracy over the
-                course of the inner loop, averaged over the task batch
-                shape (num_inner_steps + 1,)
-            accuracy_query (float): query set accuracy of the adapted
-                parameters, averaged over the task batch
-        """
+        
         outer_loss_batch = []
+        generated_output = []
         for i, task in enumerate(task_batch):
             
             ai_support, human_support, ai_query, human_query = task
@@ -249,28 +241,28 @@ class MAML:
             ai_query = ["paraphrase: " + sentence + "</s>" for sentence in ai_query]
             ai_support = self.tokenizer(ai_support, return_tensors="pt", padding=True).to(self.device)
             human_support = self.tokenizer(human_support, return_tensors="pt", padding=True)["input_ids"].to(self.device)
+            if not train:
+                print("AI Query: ", ai_query)
             ai_query = self.tokenizer(ai_query, return_tensors="pt", padding=True).to(self.device)
             human_query = self.tokenizer(human_query, return_tensors="pt", padding=True)["input_ids"].to(self.device)
             
             parameters = self._inner_loop(ai_support, human_support, train)
 
             # Model still has the PHI parameters set inside self._inner_loop
-            loss = self.model(**ai_query, labels=human_query).loss
-
-            if not train:
-                print("Human Query: ", human_query)
-                print("Generated: ",
-                    self.tokenizer.decode(self.model.generate(
-                                    **ai_query,
-                                    max_length=256,
-                                    do_sample=True,
-                                    top_k=200,
-                                    top_p=0.95,
-                                    num_return_sequences=1), skip_special_tokens=True,clean_up_tokenization_spaces=True))
-                    
+            if train:
+                loss = self.model(**ai_query, labels=human_query).loss
+                outer_loss_batch.append(loss)
+            else:
+                with torch.no_grad():
+                    generated_output = self.tokenizer.batch_decode(self.model.generate(
+                                        **ai_query,
+                                        max_length=256,
+                                        do_sample=True,
+                                        top_k=200,
+                                        top_p=0.95,
+                                        num_return_sequences=1), skip_special_tokens=True,clean_up_tokenization_spaces=True)
                     
             
-            outer_loss_batch.append(loss)
 
             # Use util.score to compute accuracies.
             # Make sure to populate outer_loss_batch, accuracies_support_batch,
@@ -279,10 +271,13 @@ class MAML:
             # accuracy_query_batch.append(util.score(logits, labels_query))
         
             ### END CODE HERE ###
-        outer_loss = torch.mean(torch.stack(outer_loss_batch))
         
-        return outer_loss
-
+        if train:
+            outer_loss = torch.mean(torch.stack(outer_loss_batch))
+            return outer_loss
+        else:
+            return generated_output
+    
     def train(self, dataloader_meta_train, dataloader_meta_val, writer):
         """Train the MAML.
 
@@ -310,8 +305,6 @@ class MAML:
             # print(torch.cuda.memory_summary())
 
             
-
-
             if i_step % LOG_INTERVAL == 0:
                 print(
                     f'Iteration {i_step}: '
@@ -340,25 +333,37 @@ class MAML:
             if i_step % SAVE_INTERVAL == 0:
                 self._save(i_step)
 
-    def test(self, dataloader_test):
+    def test(self, dataloader_test, data_output_dir, num_ai_paragraphs_to_eval=500, ):
         """Evaluate the MAML on test tasks.
 
         Args:
             dataloader_test (DataLoader): loader for test tasks
         """
         # TODO: Implement this method with detectpgt score?
-        outputs = []
-        for task_batch in dataloader_test:
-            _, _, accuracy_query = self._outer_step(task_batch, train=False)
-            # accuracies.append(accuracy_query)
-        # mean = np.mean(accuracies)
-        # std = np.std(accuracies)
-        # mean_95_confidence_interval = 1.96 * std / np.sqrt(NUM_TEST_TASKS)
-        # print(
-        #     f'Accuracy over {NUM_TEST_TASKS} test tasks: '
-        #     f'mean {mean:.3f}, '
-        #     f'95% confidence interval {mean_95_confidence_interval:.3f}'
-        # )
+        output = {"ai_sample": [], "rephrased_sample": []}
+        dataset_ai_samples = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[70%:]")
+        dataset_ai_samples = dataset_ai_samples.filter(lambda example: len(example['generated_intro']) > 50)
+        def strip_and_split(example):
+            example["generated"] = " ".join(example["generated_intro"].strip().split())
+            example["sentences"] = nltk.sent_tokenize(example["generated"])
+            return example
+        dataset_ai_samples = dataset_ai_samples.map(strip_and_split, remove_columns=dataset_ai_samples.column_names)
+        dataset_ai_samples = dataset_ai_samples[:num_ai_paragraphs_to_eval]
+        # dataset_ai_samples = {"generated": ["asdsd", "asdads", "asdasd"]
+        #                       "sentences": ["as", "as", "as"], ["as", "ds", "asd"], ["asd", "ds", "ds"]}
+
+        for task_batch, generated, sentence in zip(dataloader_test, dataset_ai_samples['generated'], dataset_ai_samples['sentences']):
+            ai_support, human_support, _, human_query = task_batch[0]
+            task_batch[0] = (ai_support, human_support, sentence, human_query)
+            generated_output_sentences = self._outer_step(task_batch, train=False)
+            generated_sample = " ".join(generated_output_sentences)
+
+            output["ai_sample"].append(generated)
+            output["rephrased_sample"].append(generated_sample)
+
+        ds = dataset.Dataset.from_dict(output)
+        ds.save_to_disk(data_output_dir)
+
 
     def load(self, checkpoint_step):
         """Loads a checkpoint.
@@ -473,6 +478,9 @@ def main(args):
             f'num_support={args.num_support}, '
             f'num_query={args.num_query}'
         )
+
+        assert args.batch_size == 1
+        assert args.test_output_dir != None
         # dataloader_test = omniglot.get_omniglot_dataloader(
         #     'test',
         #     1,
@@ -482,7 +490,7 @@ def main(args):
         #     NUM_TEST_TASKS,
         #     args.num_workers
         # )
-        maml.test(dataloader_test)
+        maml.test(dataloader_test, args.test_output_dir)
 
 
 if __name__ == '__main__':
@@ -507,6 +515,8 @@ if __name__ == '__main__':
                         help='number of outer-loop updates to train for')
     parser.add_argument('--test', default=False, action='store_true',
                         help='train or test')
+    parser.add_argument('--test_output_dir', type=str, default=None,
+                        help='directory that test stores generated outputs to')
     parser.add_argument('--checkpoint_step', type=int, default=-1,
                         help=('checkpoint iteration to load for resuming '
                               'training, or for evaluation (-1 is ignored)'))

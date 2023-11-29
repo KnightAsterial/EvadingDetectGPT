@@ -5,9 +5,9 @@ from sklearn.metrics import roc_curve, precision_recall_curve, auc
 import matplotlib.pyplot as plt
 
 
-def strip_whitespace(example):
-    example["wiki_intro"] = " ".join(example["wiki_intro"].strip().split())
-    example["generated_intro"] = " ".join(example["generated_intro"].strip().split())
+def strip_whitespace(example, ai_label, human_label):
+    example[human_label] = " ".join(example[human_label].strip().split())
+    example[ai_label] = " ".join(example[ai_label].strip().split())
 
 # plot histogram of diff and save fig
 # plt.hist(diff, bins=50)
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     human_label = "wiki_intro"
     dataset = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[:1000]")
     
-    dataset = dataset.map(strip_whitespace)
+    dataset = dataset.map(strip_whitespace, ai_label, human_label)
     data_human = dataset[human_label]
     data_ai = dataset[ai_label]
     res_human = get_score(data_human)

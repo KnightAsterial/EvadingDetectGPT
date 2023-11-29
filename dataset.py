@@ -191,7 +191,7 @@ def get_pair_dataloaders(
                 collate_fn=identity,
                 pin_memory=torch.cuda.is_available(),
                 drop_last=True) 
-            for num_tasks, paired_dataset in zip([num_tasks_per_epoch, 4, 100], paired_datasets)]
+            for num_tasks, paired_dataset in zip([num_tasks_per_epoch, 4, 1_000_000], paired_datasets)] #TODO: HARDCODED
 
     #     dataloader.DataLoader(
     #         dataset=test_dataset,
