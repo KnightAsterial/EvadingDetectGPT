@@ -14,7 +14,7 @@ chunk_size = 20
 batch_size = 50
 mask_top_p = 1.0
 
-n_perturbations = 10
+n_perturbations = 100
 mask_pct = 0.3 # Default is 0.3
 
 API_TOKEN_COUNTER = 0

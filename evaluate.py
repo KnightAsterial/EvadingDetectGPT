@@ -36,10 +36,10 @@ def get_precision_recall_metrics(real_preds, sample_preds):
 if __name__ == "__main__":
     
     # CONFIG
-    method = "paraphrased"
-    ai_label = "ai_sample"
-    human_label = "rephrased_sample"
-    dataset = load_from_disk(f"test_out_wiki")
+    method = "dataset_stats"
+    ai_label = "generated"
+    human_label = "wiki_intro"
+    dataset = load_from_disk("./data_t5_wikidoc_para")
     
     dataset = dataset.map(lambda example: strip_whitespace(example, ai_label, human_label))
     data_human = dataset[human_label]
