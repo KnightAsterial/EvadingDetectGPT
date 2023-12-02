@@ -508,7 +508,8 @@ def main(args):
             f'Testing on tasks with composition '
             # f'num_way={args.num_way}, '
             f'num_support={args.num_support}, '
-            f'num_query={args.num_query}'
+            f'num_query={args.num_query}, '
+            f'test_skip_innerloop={args.test_skip_innerloop}'
         )
 
         assert args.batch_size == 1
