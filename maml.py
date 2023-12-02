@@ -260,7 +260,7 @@ class MAML:
         return outer_loss
     
 
-    def _outer_step_test(self, task_batch, train):
+    def _outer_step_test(self, task_batch, train, skip_innerloop=False):
         
         outer_loss_batch = []
         generated_output = []
@@ -276,7 +276,8 @@ class MAML:
             ai_query = self.tokenizer(ai_query, return_tensors="pt", padding=True).to(self.device)
             human_query = self.tokenizer(human_query, return_tensors="pt", padding=True)["input_ids"].to(self.device)
             
-            parameters = self._inner_loop(ai_support, human_support, train)
+            if (not skip_innerloop):
+                parameters = self._inner_loop(ai_support, human_support, train)
 
             # Model still has the PHI parameters set inside self._inner_loop
             if train:
@@ -363,7 +364,7 @@ class MAML:
             if i_step % SAVE_INTERVAL == 0:
                 self._save(i_step)
 
-    def test(self, dataloader_test, data_output_dir, num_ai_paragraphs_to_eval=500, ):
+    def test(self, dataloader_test, data_output_dir, num_ai_paragraphs_to_eval=500, skip_innerloop=False):
         """Evaluate the MAML on test tasks.
 
         Args:
@@ -385,7 +386,7 @@ class MAML:
         for task_batch, generated, sentence in zip(dataloader_test, dataset_ai_samples['generated'], dataset_ai_samples['sentences']):
             ai_support, human_support, _, human_query, num_edits = task_batch[0]
             task_batch[0] = (ai_support, human_support, sentence, human_query, num_edits)
-            generated_output_sentences = self._outer_step_test(task_batch, train=False)
+            generated_output_sentences = self._outer_step_test(task_batch, train=False, skip_innerloop=skip_innerloop)
             generated_sample = " ".join(generated_output_sentences)
 
             output["ai_sample"].append(generated)
@@ -521,7 +522,7 @@ def main(args):
         #     NUM_TEST_TASKS,
         #     args.num_workers
         # )
-        maml.test(dataloader_test, args.test_output_dir)
+        maml.test(dataloader_test, args.test_output_dir, args.test_skip_innerloop)
 
 
 if __name__ == '__main__':
@@ -548,6 +549,8 @@ if __name__ == '__main__':
                         help='train or test')
     parser.add_argument('--test_output_dir', type=str, default=None,
                         help='directory that test stores generated outputs to')
+    parser.add_argument('--test_skip_innerloop', default=False, action='store_true',
+                        help='should we run the inner loop within test when generating outputs')
     parser.add_argument('--checkpoint_step', type=int, default=-1,
                         help=('checkpoint iteration to load for resuming '
                               'training, or for evaluation (-1 is ignored)'))
