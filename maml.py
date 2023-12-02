@@ -523,7 +523,7 @@ def main(args):
         #     NUM_TEST_TASKS,
         #     args.num_workers
         # )
-        maml.test(dataloader_test, args.test_output_dir, args.test_skip_innerloop)
+        maml.test(dataloader_test, args.test_output_dir, skip_innerloop=args.test_skip_innerloop)
 
 
 if __name__ == '__main__':
