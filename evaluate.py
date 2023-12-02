@@ -3,6 +3,7 @@ from datasets import load_from_disk, load_dataset
 import numpy as np
 from sklearn.metrics import roc_curve, precision_recall_curve, auc
 import matplotlib.pyplot as plt
+import argparse
 
 
 def strip_whitespace(example, ai_label, human_label):
@@ -34,12 +35,26 @@ def get_precision_recall_metrics(real_preds, sample_preds):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser('Train a MAML!')
+    parser.add_argument('--method', type=str, default=None, required=True,
+                        help='name for this evaluation')
+    parser.add_argument('--ai_label', type=str, default=None, required=True,
+                        help='ai_label')
+    parser.add_argument('--human_label', type=str, default=None, required=True,
+                        help='human_label')
+    parser.add_argument('--dataset_dir', type=str, default=None, required=True,
+                        help='local directory to load huggingface dataset from')
+    args = parser.parse_args()
     
     # CONFIG
-    method = "dataset_stats"
-    ai_label = "generated"
-    human_label = "wiki_intro"
-    dataset = load_from_disk("./data_t5_wikidoc_para")
+    method = args.method
+    ai_label = args.ai_label
+    human_label = args.human_label
+    dataset = load_from_disk(args.dataset_dir)
+    # method = "dataset_stats"
+    # ai_label = "generated"
+    # human_label = "wiki_intro"
+    # dataset = load_from_disk("./data_t5_wikidoc_para")
     
     dataset = dataset.map(lambda example: strip_whitespace(example, ai_label, human_label))
     data_human = dataset[human_label]
