@@ -87,6 +87,7 @@ class PairedDataset(dataset.Dataset):
             human_support (List[String]): task support phrases
             ai_query (List[String]): task query phrases
             human_query (List[String]): task query phrases
+            num_edits (int): number of edits between each human and AI text pair
         """
         ai_support, ai_query = [], []
         human_support, human_query = [], []
@@ -114,7 +115,7 @@ class PairedDataset(dataset.Dataset):
         # ai_query = torch.stack(ai_query)
         # human_query = torch.tensor(human_query)
 
-        return ai_support, human_support, ai_query, human_query
+        return ai_support, human_support, ai_query, human_query, num_edits
 
 
 class PairSampler(sampler.Sampler):

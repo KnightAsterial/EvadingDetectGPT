@@ -232,7 +232,7 @@ class MAML:
         outer_loss_batch = []
         for i, task in enumerate(task_batch):
             
-            ai_support, human_support, ai_query, human_query = task
+            ai_support, human_support, ai_query, human_query, num_edits = task
             
             # tokenize inputs
             ai_support = ["paraphrase: " + sentence + "</s>" for sentence in ai_support]
@@ -266,7 +266,7 @@ class MAML:
         generated_output = []
         for i, task in enumerate(task_batch):
             
-            ai_support, human_support, ai_query, human_query = task
+            ai_support, human_support, ai_query, human_query, num_edits = task
             
             # tokenize inputs
             ai_support = ["paraphrase: " + sentence + "</s>" for sentence in ai_support]
@@ -370,7 +370,7 @@ class MAML:
             dataloader_test (DataLoader): loader for test tasks
         """
         # TODO: Implement this method with detectpgt score?
-        output = {"ai_sample": [], "rephrased_sample": []}
+        output = {"ai_sample": [], "rephrased_sample": [], "num_edits": []}
         dataset_ai_samples = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[70%:]")
         dataset_ai_samples = dataset_ai_samples.filter(lambda example: len(example['generated_intro']) > 50)
         def strip_and_split(example):
@@ -383,13 +383,14 @@ class MAML:
         #                       "sentences": ["as", "as", "as"], ["as", "ds", "asd"], ["asd", "ds", "ds"]}
 
         for task_batch, generated, sentence in zip(dataloader_test, dataset_ai_samples['generated'], dataset_ai_samples['sentences']):
-            ai_support, human_support, _, human_query = task_batch[0]
-            task_batch[0] = (ai_support, human_support, sentence, human_query)
+            ai_support, human_support, _, human_query, num_edits = task_batch[0]
+            task_batch[0] = (ai_support, human_support, sentence, human_query, num_edits)
             generated_output_sentences = self._outer_step_test(task_batch, train=False)
             generated_sample = " ".join(generated_output_sentences)
 
             output["ai_sample"].append(generated)
             output["rephrased_sample"].append(generated_sample)
+            output["num_edits"].append(num_edits)
 
         ds = Dataset.from_dict(output)
         ds.save_to_disk(data_output_dir)
