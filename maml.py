@@ -371,24 +371,26 @@ class MAML:
             dataloader_test (DataLoader): loader for test tasks
         """
         # TODO: Implement this method with detectpgt score?
-        output = {"ai_sample": [], "rephrased_sample": [], "num_edits": []}
+        output = {"ai_sample": [], "rephrased_sample": [], "num_edits": [], "human_sample":[]}
         dataset_ai_samples = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[70%:]")
         dataset_ai_samples = dataset_ai_samples.filter(lambda example: len(example['generated_intro']) > 50)
         def strip_and_split(example):
             example["generated"] = " ".join(example["generated_intro"].strip().split())
             example["sentences"] = nltk.sent_tokenize(example["generated"])
+            example["human"] = " ".join(example["wiki_intro"].strip().split())
             return example
         dataset_ai_samples = dataset_ai_samples.map(strip_and_split, remove_columns=dataset_ai_samples.column_names)
         dataset_ai_samples = dataset_ai_samples[:num_ai_paragraphs_to_eval]
         # dataset_ai_samples = {"generated": ["asdsd", "asdads", "asdasd"]
         #                       "sentences": ["as", "as", "as"], ["as", "ds", "asd"], ["asd", "ds", "ds"]}
 
-        for task_batch, generated, sentence in zip(dataloader_test, dataset_ai_samples['generated'], dataset_ai_samples['sentences']):
+        for task_batch, generated, sentence, human in zip(dataloader_test, dataset_ai_samples['generated'], dataset_ai_samples['sentences'], dataset_ai_samples['human']):
             ai_support, human_support, _, human_query, num_edits = task_batch[0]
             task_batch[0] = (ai_support, human_support, sentence, human_query, num_edits)
             generated_output_sentences = self._outer_step_test(task_batch, train=False, skip_innerloop=skip_innerloop)
             generated_sample = " ".join(generated_output_sentences)
 
+            output["human_sample"].append(human)
             output["ai_sample"].append(generated)
             output["rephrased_sample"].append(generated_sample)
             output["num_edits"].append(num_edits)
