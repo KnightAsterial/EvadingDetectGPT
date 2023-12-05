@@ -13,7 +13,8 @@ from datasets import load_from_disk
 import numpy as np
 import matplotlib.pyplot as plt
 import nltk
-nltk.download('punkt')
+from customDetectGPT import get_score 
+# nltk.download('punkt')
 
 def edit_distance(sent1, sent2):
     sent1_split = sent1.lower().split(' ')
@@ -35,6 +36,11 @@ def edit_distance(sent1, sent2):
 
     return dp[m][n]
 
+# def detectgpt_score(example):
+#     rephrased_scores = get_score(example["rephrased_sample"])
+#     ai_scores = get_score(example["ai_sample"])
+#     return {"rephrased_scores": rephrased_scores, "ai_scores": ai_scores}
+
 def split_and_count_edits(example):
     ai_sents = nltk.sent_tokenize(example["ai_sample"])
     rephrased_sents = nltk.sent_tokenize(example["rephrased_sample"])
@@ -43,22 +49,52 @@ def split_and_count_edits(example):
         result.append(edit_distance(ai_sent, rephrased_sent))
     return {'edit_distances': result, "mean_edit_distances": np.mean(result)}
 
-dataset = load_from_disk('./modeltest_cp6k')
+
+# dataset = load_from_disk('./modeltest_cp6k')
+dataset = load_from_disk('./modeltest_cp0_noinnerloop')
+res_ai = get_score(dataset["ai_sample"])
+res_rephrased = get_score(dataset["rephrased_sample"])
+
+rephrased_scores = [((d["ll"] - d["perturbed_ll"]) / d["perturbed_ll_std"]) if d["perturbed_ll_std"] != 0 else d["ll"] - d["perturbed_ll"] for d in res_rephrased]
+ai_scores = [((d["ll"] - d["perturbed_ll"]) / d["perturbed_ll_std"]) if d["perturbed_ll_std"] != 0 else d["ll"] - d["perturbed_ll"] for d in res_ai]
+
+dataset = dataset.add_column("ai_scores", ai_scores)
+dataset = dataset.add_column("rephrased_scores", rephrased_scores)
 
 dataset = dataset.map(split_and_count_edits)
+print(dataset[:2])
 
-plt.scatter(dataset["num_edits"], dataset["mean_edit_distances"])
-plt.xlabel("num_edits picked for task")
-plt.ylabel("mean_edit_distance")
-plt.title("Checkpoint 60k")
-plt.show()
+# plt.scatter(dataset["num_edits"], dataset["mean_edit_distances"])
+# plt.xlabel("num_edits picked for task")
+# plt.ylabel("mean_edit_distance")
+# plt.title("Checkpoint 60k")
+# plt.show()
 
-dataset_cp0_wis = load_from_disk('./modeltest_cp0_withinnerstep') # wis = with_inner_step
-dataset_cp0_wis = dataset_cp0_wis.map(split_and_count_edits)
+# dataset_cp0_wis = load_from_disk('./modeltest_cp0_withinnerstep') # wis = with_inner_step
+# dataset_cp0_wis = dataset_cp0_wis.map(split_and_count_edits)
 
-plt.scatter(dataset_cp0_wis["num_edits"], dataset_cp0_wis["mean_edit_distances"])
-plt.xlabel("num_edits picked for task")
-plt.ylabel("mean_edit_distance")
-plt.title("Checkpoint 0")
-plt.show()
+
+# plt.scatter(dataset_cp0_wis["num_edits"], dataset_cp0_wis["mean_edit_distances"])
+# plt.xlabel("num_edits picked for task")
+# plt.ylabel("mean_edit_distance")
+# plt.title("Checkpoint 0")
+# plt.show()
+
+# # plot the difference in scores against the number of edits picked
+# plt.clf()
+# plt.scatter(dataset["mean_edit_distances"], dataset["rephrased_scores"] - np.array(dataset["ai_scores"]))
+# plt.xlabel("mean_edit_distances")
+# plt.ylabel("rephrased scores - ai scores")
+# plt.title("Checkpoint 60k")
+# # save
+# plt.savefig("score_vs_edits.png")
+
+# plot the difference in scores against the number of edits picked
+plt.clf()
+plt.scatter(dataset["mean_edit_distances"], dataset["rephrased_scores"] - np.array(dataset["ai_scores"]))
+plt.xlabel("mean_edit_distances")
+plt.ylabel("rephrased scores - ai scores")
+plt.title("Baseline")
+# save
+plt.savefig("score_vs_edits_0k.png")
 
