@@ -67,6 +67,29 @@ class Multitask:
         loss = torch.mean(torch.stack(loss_batch))
         
         return loss
+
+    def test_step(self, task_batch):
+        
+        generated_output = []
+        for i, task in enumerate(task_batch):
+            
+            _, _, ai_query, _, num_edits = task
+            
+            # tokenize inputs
+            ai_query = ["paraphrase: " + sentence + "</s>" for sentence in ai_query]
+            ai_query = self.tokenizer(ai_query, return_tensors="pt", padding=True).to(self.device)
+
+            with torch.no_grad():
+                generated_output = self.tokenizer.batch_decode(self.model.generate(
+                                    **ai_query,
+                                    max_length=256,
+                                    do_sample=True,
+                                    top_k=200,
+                                    top_p=0.95,
+                                    num_return_sequences=1), skip_special_tokens=True,clean_up_tokenization_spaces=True)
+                
+        return generated_output
+
     
     def train(self, dataloader_meta_train, dataloader_meta_val, writer):
 
@@ -116,6 +139,43 @@ class Multitask:
 
             if i_step % SAVE_INTERVAL == 0:
                 self._save(i_step)
+
+
+    def test(self, dataloader_test, data_output_dir, num_ai_paragraphs_to_eval=500):
+        """Evaluate the MAML on test tasks.
+
+        Args:
+            dataloader_test (DataLoader): loader for test tasks
+        """
+        # TODO: Implement this method with detectpgt score?
+        output = {"ai_sample": [], "rephrased_sample": [], "num_edits": [], "human_sample":[]}
+        dataset_ai_samples = load_dataset("aadityaubhat/GPT-wiki-intro", split="train[70%:]")
+        dataset_ai_samples = dataset_ai_samples.filter(lambda example: len(example['generated_intro']) > 50)
+        def strip_and_split(example):
+            example["generated"] = " ".join(example["generated_intro"].strip().split())
+            example["sentences"] = nltk.sent_tokenize(example["generated"])
+            example["human"] = " ".join(example["wiki_intro"].strip().split())
+            return example
+        dataset_ai_samples = dataset_ai_samples.map(strip_and_split, remove_columns=dataset_ai_samples.column_names)
+        dataset_ai_samples = dataset_ai_samples[:num_ai_paragraphs_to_eval]
+        # dataset_ai_samples = {"generated": ["asdsd", "asdads", "asdasd"]
+        #                       "sentences": ["as", "as", "as"], ["as", "ds", "asd"], ["asd", "ds", "ds"]}
+
+        for task_batch, generated, sentence, human in zip(dataloader_test, dataset_ai_samples['generated'], dataset_ai_samples['sentences'], dataset_ai_samples['human']):
+            ai_support, human_support, _, human_query, num_edits = task_batch[0]
+            task_batch[0] = (ai_support, human_support, sentence, human_query, num_edits)
+            self.model.lm_head = self.heads[num_edits]
+            generated_output_sentences = self.test_step(task_batch)
+            generated_sample = " ".join(generated_output_sentences)
+
+            output["human_sample"].append(human)
+            output["ai_sample"].append(generated)
+            output["rephrased_sample"].append(generated_sample)
+            output["num_edits"].append(num_edits)
+
+        ds = Dataset.from_dict(output)
+        ds.save_to_disk(data_output_dir)
+
 
     def load(self, checkpoint_step):
         """Loads a checkpoint.
@@ -189,7 +249,7 @@ def main(args):
         model,
         tokenizer,
         # args.num_way,
-        args.max_num_edits
+        args.max_num_edits,
         args.outer_lr,
         DEVICE
     )
@@ -225,7 +285,6 @@ def main(args):
             # f'num_way={args.num_way}, '
             f'num_support={args.num_support}, '
             f'num_query={args.num_query}, '
-            f'test_skip_innerloop={args.test_skip_innerloop}'
         )
 
         assert args.batch_size == 1
@@ -239,7 +298,7 @@ def main(args):
         #     NUM_TEST_TASKS,
         #     args.num_workers
         # )
-        multitask.test(dataloader_test, args.test_output_dir, skip_innerloop=args.test_skip_innerloop)
+        multitask.test(dataloader_test, args.test_output_dir)
 
 
 if __name__ == '__main__':
@@ -262,8 +321,6 @@ if __name__ == '__main__':
                         help='train or test')
     parser.add_argument('--test_output_dir', type=str, default=None,
                         help='directory that test stores generated outputs to')
-    parser.add_argument('--test_skip_innerloop', default=False, action='store_true',
-                        help='should we run the inner loop within test when generating outputs')
     parser.add_argument('--checkpoint_step', type=int, default=-1,
                         help=('checkpoint iteration to load for resuming '
                               'training, or for evaluation (-1 is ignored)'))
