@@ -3,6 +3,7 @@ import sys
 sys.path.append('..')
 import argparse
 import os
+import copy
 
 import numpy as np
 import torch
@@ -26,55 +27,261 @@ from datasets import load_from_disk, load_dataset, Dataset
 import nltk
 nltk.download('punkt')
 
+SAVE_INTERVAL = 3000 # Previously 100
+LOG_INTERVAL = 100 # Previously 10
+VAL_INTERVAL = LOG_INTERVAL * 5
+
+DEVICE='cpu'
+
 class Multitask:
-    def __init__(self, model, ):
+    def __init__(self, model, tokenizer, supported_num_edits, lr, device):
+        self.lr = lr
+        self.tokenizer = tokenizer
         self.model = model
-        self.heads = [nn.inear(in_features=768, out_features=32128, bias=False) for edits in range(0,10)]
+        self.heads = [torch.clone(self.model.lm_head.detach()) for edits in range(0,supported_num_edits)]
 
-        self.optimizer = torch.optim.Adam(model.parameters() + )
+        parameters = []
+        for head in self.heads:
+            parameters.extend(self.heads.parameters())
+        parameters.extend(self.model.parameters())
 
+        self.optimizer = torch.optim.Adam(parameters, lr=lr)
+        
+    
+    def step(self, task_batch):
+        loss_batch = []
+        for i, task in enumerate(task_batch):
+            
+            ai_support, human_support, _, _, num_edits = task
 
+            
+            # tokenize inputs
+            ai_support = ["paraphrase: " + sentence + "</s>" for sentence in ai_support]
+            ai_support = self.tokenizer(ai_support, return_tensors="pt", padding=True).to(self.device)
+            human_support = self.tokenizer(human_support, return_tensors="pt", padding=True)["input_ids"].to(self.device)
+            
+            loss = self.model(**ai_support, labels=human_support).loss
+            
+            loss_batch.append(loss)
+
+        loss = torch.mean(torch.stack(loss_batch))
+        
+        return loss
+    
     def train(self, dataloader_meta_train, dataloader_meta_val, writer):
 
-            print(f'Starting training at iteration {self._start_train_step}.')
-            for i_step, task_batch in enumerate(
-                    dataloader_meta_train,
-                    start=self._start_train_step
-            ):
-                self._optimizer.zero_grad()
-
-            loss = uter_step(task_batch, True)
-
-            terloss.backward()
-              self._optimizer.step()
-
-                # print(torch.cuda.memory_summary())
-
+        print(f'Starting training at iteration {self._start_train_step}.')
+        for i_step, task_batch in enumerate(
+                dataloader_meta_train,
+                start=self._start_train_step
+        ):
+            self._optimizer.zero_grad()
                 
-                if i_step % LOG_INTERVAL == 0:
-                    print(
-                        f'Iteration {i_step}: '
-                        f'loss: {outer_loss.item():.3f}, '
-                    )
-                    writer.add_scalar('loss/train', outer_loss.item(), i_step)
+            # since batch size is always 1, this is ok
+            num_edits = task_batch[0][-1]
+            # replace the head in self.model
+            self.model.lm_head = self.heads[num_edits]
+
+            loss = self.step(task_batch)
+
+            loss.backward()
+            self._optimizer.step()
+
+            # print(torch.cuda.memory_summary())
+
+            if i_step % LOG_INTERVAL == 0:
+                print(
+                    f'Iteration {i_step}: '
+                    f'loss: {loss.item():.3f}, '
+                )
+                writer.add_scalar('loss/train', loss.item(), i_step)
 
 
-                if i_step % VAL_INTERVAL == 0:
-                    losses = []
+            if i_step % VAL_INTERVAL == 0:
+                losses = []
 
-                    for val_task_batch in dataloader_meta_val:
-                        outer_loss = self._outer_step(val_task_batch, False)
-                        losses.append(outer_loss.item())
+                for val_task_batch in dataloader_meta_val:
+                    loss = self._step(val_task_batch, False)
+                    losses.append(loss.item())
 
-                    loss = np.mean(losses)
+                val_loss = np.mean(losses)
 
-                    print(
-                        f'Validation: '
-                        f'loss: {loss:.3f}, '
+                print(
+                    f'Validation: '
+                    f'loss: {val_loss:.3f}, '
 
-                    )
-                    writer.add_scalar('loss/val', loss, i_step)
+                )
+                writer.add_scalar('loss/val', val_loss, i_step)
 
 
-                if i_step % SAVE_INTERVAL == 0:
-                    self._save(i_step)
+            if i_step % SAVE_INTERVAL == 0:
+                self._save(i_step)
+
+    def load(self, checkpoint_step):
+        """Loads a checkpoint.
+
+        Args:
+            checkpoint_step (int): iteration of checkpoint to load
+
+        Raises:
+            ValueError: if checkpoint for checkpoint_step is not found
+        """
+        target_path = (
+            f'{os.path.join(self._log_dir, "state")}'
+            f'{checkpoint_step}.pt'
+        )
+        if os.path.isfile(target_path):
+            state = torch.load(target_path)
+            self.heads = state['heads']
+            self.model.load_state_dict(state['model_state_dict'])
+            self._optimizer.load_state_dict(state['optimizer_state_dict'])
+            self._start_train_step = checkpoint_step + 1
+            print(f'Loaded checkpoint iteration {checkpoint_step}.')
+        else:
+            raise ValueError(
+                f'No checkpoint for iteration {checkpoint_step} found.'
+            )
+
+    def _save(self, checkpoint_step):
+        """Saves parameters and optimizer state_dict as a checkpoint.
+
+        Args:
+            checkpoint_step (int): iteration to label checkpoint with
+        """
+        optimizer_state_dict = self._optimizer.state_dict()
+        model_state_dict = self.model.state_dict()
+        torch.save(
+            dict(heads=self.heads,
+                 model_state_dict=model_state_dict,
+                 optimizer_state_dict=optimizer_state_dict),
+            f'{os.path.join(self._log_dir, "state")}{checkpoint_step}.pt'
+        )
+        print('Saved checkpoint.')
+
+
+def main(args):
+
+    print(args)
+
+    if args.device == "gpu" and torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        # on MPS the derivative for aten::linear_backward is not implemented ... Waiting for PyTorch 2.1.0
+        # DEVICE = "mps"
+
+        # Due to the above, default for now to cpu
+        DEVICE = "cpu"
+    elif args.device == "gpu" and torch.cuda.is_available():
+        DEVICE = "cuda"
+    else:
+        DEVICE = "cpu"
+
+    print("Using device: ", DEVICE)
+
+    log_dir = args.log_dir
+    if log_dir is None:
+        log_dir = f'./logs/multitask/evadegpt.support_{args.num_support}.query_{args.num_query}.outer_lr_{args.outer_lr}.batch_size_{args.batch_size}.iters_{args.num_train_iterations}'  # pylint: disable=line-too-long
+    print(f'log_dir: {log_dir}')
+    writer = tensorboard.SummaryWriter(log_dir=log_dir)
+    
+    model = AutoModelForSeq2SeqLM.from_pretrained("Vamsi/T5_Paraphrase_Paws", torch_dtype=torch.bfloat16).to(DEVICE)
+    tokenizer = AutoTokenizer.from_pretrained("Vamsi/T5_Paraphrase_Paws")
+
+    multitask = Multitask(
+        model,
+        tokenizer,
+        # args.num_way,
+        args.max_num_edits
+        args.outer_lr,
+        DEVICE
+    )
+
+    if args.checkpoint_step > -1:
+        multitask.load(args.checkpoint_step)
+    else:
+        print('Checkpoint loading skipped.')
+        
+    # train_dataloader, test_dataloader = dataset.get_pair_dataloader("train[:10%]", 4, 1, 1)
+
+    dataloader_meta_train, dataloader_meta_val, dataloader_test = dataset.get_pair_dataloaders(args.batch_size, args.num_support, args.num_query, args.num_workers, args.num_train_iterations)
+
+    if not args.test:
+        num_training_tasks = args.batch_size * (args.num_train_iterations -
+                                                args.checkpoint_step - 1)
+        print(
+            f'Training on {num_training_tasks} tasks with composition: '
+            # f'num_way={args.num_way}, '
+            f'num_support={args.num_support}, '
+            f'num_query={args.num_query}'
+        )
+        
+        
+        multitask.train(
+            dataloader_meta_train,
+            dataloader_meta_val,
+            writer,
+        )
+    else:
+        print(
+            f'Testing on tasks with composition '
+            # f'num_way={args.num_way}, '
+            f'num_support={args.num_support}, '
+            f'num_query={args.num_query}, '
+            f'test_skip_innerloop={args.test_skip_innerloop}'
+        )
+
+        assert args.batch_size == 1
+        assert args.test_output_dir != None
+        # dataloader_test = omniglot.get_omniglot_dataloader(
+        #     'test',
+        #     1,
+        #     args.num_way,
+        #     args.num_support,
+        #     args.num_query,
+        #     NUM_TEST_TASKS,
+        #     args.num_workers
+        # )
+        multitask.test(dataloader_test, args.test_output_dir, skip_innerloop=args.test_skip_innerloop)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser('Train a MAML!')
+    parser.add_argument('--log_dir', type=str, default=None,
+                        help='directory to save to or load from')
+    parser.add_argument('--num_support', type=int, default=10,
+                        help='number of support examples per class in a task')
+    parser.add_argument('--num_query', type=int, default=1,
+                        help='number of query examples per class in a task')
+    parser.add_argument('--max_num_edits', type=int, default=10,
+                        help='create heads for edits in range (0,max_num_edits)')
+    parser.add_argument('--outer_lr', type=float, default=0.001,
+                        help='outer-loop learning rate')
+    parser.add_argument('--batch_size', type=int, default=16,
+                        help='number of tasks per outer-loop update')
+    parser.add_argument('--num_train_iterations', type=int, default=15000,
+                        help='number of outer-loop updates to train for')
+    parser.add_argument('--test', default=False, action='store_true',
+                        help='train or test')
+    parser.add_argument('--test_output_dir', type=str, default=None,
+                        help='directory that test stores generated outputs to')
+    parser.add_argument('--test_skip_innerloop', default=False, action='store_true',
+                        help='should we run the inner loop within test when generating outputs')
+    parser.add_argument('--checkpoint_step', type=int, default=-1,
+                        help=('checkpoint iteration to load for resuming '
+                              'training, or for evaluation (-1 is ignored)'))
+    parser.add_argument('--num_workers', type=int, default=2, 
+                        help=('needed to specify omniglot dataloader'))
+    parser.add_argument('--cache', action='store_true')
+    parser.add_argument('--device', type=str, default='cpu')
+
+    args = parser.parse_args()
+
+    # if args.cache == True:
+    #     # Download Omniglot Dataset
+    #     if not os.path.isdir("./omniglot_resized"):
+    #         gdd.download_file_from_google_drive(
+    #             file_id="1iaSFXIYC3AB8q9K_M-oVMa4pmB7yKMtI",
+    #             dest_path="./omniglot_resized.zip",
+    #             unzip=True,
+    #         )
+    #     assert os.path.isdir("./omniglot_resized")
+    # else:
+    main(args)
