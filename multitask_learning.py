@@ -68,8 +68,6 @@ class Multitask:
             # tokenize inputs
             ai_support = ["paraphrase: " + sentence + "</s>" for sentence in ai_support]
             ai_support = self.tokenizer(ai_support, return_tensors="pt", padding=True).to(self.device)
-            print(ai_support["input_ids"].device)
-            print("MODEL embedding", self.model.encoder.embed_tokens.weight.device)
             human_support = self.tokenizer(human_support, return_tensors="pt", padding=True)["input_ids"].to(self.device)
             
             loss = self.model(**ai_support, labels=human_support).loss
