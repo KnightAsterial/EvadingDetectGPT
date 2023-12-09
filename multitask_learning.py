@@ -136,7 +136,7 @@ class Multitask:
                 losses = []
 
                 for val_task_batch in dataloader_meta_val:
-                    loss = self._step(val_task_batch, False)
+                    loss = self.step(val_task_batch, False)
                     losses.append(loss.item())
 
                 val_loss = np.mean(losses)
