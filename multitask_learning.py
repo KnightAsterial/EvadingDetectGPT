@@ -261,7 +261,7 @@ def main(args):
         
     # train_dataloader, test_dataloader = dataset.get_pair_dataloader("train[:10%]", 4, 1, 1)
 
-    dataloader_meta_train, dataloader_meta_val, dataloader_test = dataset.get_pair_dataloaders(args.batch_size, args.num_support, args.num_query, args.num_workers, args.num_train_iterations)
+    dataloader_meta_train, dataloader_meta_val, dataloader_test = dataset.get_pair_dataloaders(args.batch_size, args.num_support, args.num_query, args.num_workers, args.num_train_iterations, max_num_edits=args.max_num_edits)
 
     if not args.test:
         num_training_tasks = args.batch_size * (args.num_train_iterations -

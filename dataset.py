@@ -121,14 +121,21 @@ class PairedDataset(dataset.Dataset):
 class PairSampler(sampler.Sampler):
     """Samples task specification keys for an OmniglotDataset."""
 
-    def __init__(self, avail_edits, num_tasks_per_epoch):
+    def __init__(self, avail_edits, num_tasks_per_epoch, max_num_edits=None):
         """Inits OmniglotSampler.
 
         Args:
             avail_edits (List[int]: list of edit counts )
         """
         super().__init__(None)
-        self._avail_edits = avail_edits
+        if max_num_edits=None:
+            self._avail_edits = avail_edits
+        else:
+            filtered_edits = []
+            for i in range(max_num_edits):
+                if i in avail_edits:
+                    filtered_edits.append(i)
+            self._avail_edits = filtered_edits
         self.num_tasks_per_epoch = num_tasks_per_epoch
 
     def __iter__(self):
@@ -148,6 +155,7 @@ def get_pair_dataloaders(
         num_query,
         num_workers=2,
         num_tasks_per_epoch=3000,
+        max_num_edits=None
 ):
     """Returns three dataloader.DataLoader for paired human/AI text
 
@@ -187,7 +195,7 @@ def get_pair_dataloaders(
     return [dataloader.DataLoader(
                 dataset=paired_dataset,
                 batch_size=batch_size,
-                sampler=PairSampler(paired_dataset.avail_edits, num_tasks),
+                sampler=PairSampler(paired_dataset.avail_edits, num_tasks, max_num_edits=max_num_edits),
                 # num_workers=num_workers,
                 collate_fn=identity,
                 pin_memory=torch.cuda.is_available(),
