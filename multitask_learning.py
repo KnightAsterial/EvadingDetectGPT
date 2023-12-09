@@ -34,7 +34,7 @@ VAL_INTERVAL = LOG_INTERVAL * 5
 DEVICE='cpu'
 
 class Multitask:
-    def __init__(self, model, tokenizer, supported_num_edits, lr, device):
+    def __init__(self, model, tokenizer, supported_num_edits, lr, log_dir, device):
         self.lr = lr
         self.tokenizer = tokenizer
         self.model = model
@@ -52,6 +52,11 @@ class Multitask:
         parameters.extend(self.model.parameters())
 
         self.optimizer = torch.optim.Adam(parameters, lr=lr)
+
+        self._log_dir = log_dir
+        os.makedirs(self._log_dir, exist_ok=True)
+
+        self._start_train_step = 0
         
     
     def step(self, task_batch):
@@ -257,6 +262,7 @@ def main(args):
         # args.num_way,
         args.max_num_edits,
         args.outer_lr,
+        log_dir,
         DEVICE
     )
 
