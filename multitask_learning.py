@@ -38,6 +38,7 @@ class Multitask:
         self.lr = lr
         self.tokenizer = tokenizer
         self.model = model
+        self.device = device
         self.heads = [nn.Linear(in_features=768, out_features=32128, bias=False) for edits in range(0,supported_num_edits)]
         pretrained_head = self.model.lm_head.to('cpu')
         for i in range(len(self.heads)):
