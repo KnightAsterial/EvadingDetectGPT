@@ -51,7 +51,7 @@ class Multitask:
             parameters.extend(head.parameters())
         parameters.extend(self.model.parameters())
 
-        self.optimizer = torch.optim.Adam(parameters, lr=lr)
+        self._optimizer = torch.optim.Adam(parameters, lr=lr)
 
         self._log_dir = log_dir
         os.makedirs(self._log_dir, exist_ok=True)
