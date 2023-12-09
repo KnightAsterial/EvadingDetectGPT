@@ -128,7 +128,7 @@ class PairSampler(sampler.Sampler):
             avail_edits (List[int]: list of edit counts )
         """
         super().__init__(None)
-        if max_num_edits=None:
+        if max_num_edits==None:
             self._avail_edits = avail_edits
         else:
             filtered_edits = []
