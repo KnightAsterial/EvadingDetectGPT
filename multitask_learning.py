@@ -42,8 +42,9 @@ class Multitask:
         pretrained_head = self.model.lm_head.to('cpu')
         for i in range(len(self.heads)):
             head = self.heads[i]
-            head.weight = torch.clone(pretrained_head.weight.detach())
+            head.weight = nn.Parameter(torch.clone(pretrained_head.weight.detach()))
             self.heads[i] = head.to(device)
+        self.model.lm_head=self.heads[0] # Temporarily set the 0 head as the main head
 
         parameters = []
         for head in self.heads:
