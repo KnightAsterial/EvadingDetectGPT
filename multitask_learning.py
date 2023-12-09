@@ -39,9 +39,10 @@ class Multitask:
         self.tokenizer = tokenizer
         self.model = model
         self.heads = [nn.Linear(in_features=768, out_features=32128, bias=False) for edits in range(0,supported_num_edits)]
+        pretrained_head = self.model.lm_head.to('cpu')
         for i in range(len(self.heads)):
             head = self.heads[i]
-            head.weight = torch.clone(self.model.lm_head.weight.detach())
+            head.weight = torch.clone(pretrained_head.weight.detach())
             self.heads[i] = head.to(device)
 
         parameters = []
