@@ -48,7 +48,7 @@ class Multitask:
 
         parameters = []
         for head in self.heads:
-            parameters.extend(self.heads.parameters())
+            parameters.extend(head.parameters())
         parameters.extend(self.model.parameters())
 
         self.optimizer = torch.optim.Adam(parameters, lr=lr)
