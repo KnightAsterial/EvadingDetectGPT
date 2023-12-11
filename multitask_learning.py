@@ -252,7 +252,7 @@ def main(args):
     print(f'log_dir: {log_dir}')
     writer = tensorboard.SummaryWriter(log_dir=log_dir)
     
-    model = AutoModelForSeq2SeqLM.from_pretrained("Vamsi/T5_Paraphrase_Paws", torch_dtype=torch.bfloat16).to(DEVICE)
+    model = AutoModelForSeq2SeqLM.from_pretrained("Vamsi/T5_Paraphrase_Paws").to(DEVICE)
     tokenizer = AutoTokenizer.from_pretrained("Vamsi/T5_Paraphrase_Paws")
 
     multitask = Multitask(
