@@ -1,0 +1,24 @@
+{
+  "citation": "",
+  "description": "",
+  "features": {
+    "ai_sample": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "rephrased_sample": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "num_edits": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "human_sample": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": ""
+}
